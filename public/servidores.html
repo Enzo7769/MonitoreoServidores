@@ -65,12 +65,20 @@
   td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   td .host { color: var(--muted); font-size: 12px; display: block; }
+  .estado.mant { color: #4f6bb3; }
+  .deriva { margin-top: 6px; font-size: 12px; color: var(--aviso); line-height: 1.4; max-width: 340px; }
+  .deriva button { margin-left: 6px; padding: 2px 8px; font-size: 12px; }
+  .duraciones { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .duraciones label { border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .duraciones label:has(input:checked) { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  .duraciones input { position: absolute; opacity: 0; }
   .etiqueta-demo { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: #fff; background: #7c3aed; padding: 1px 6px; border-radius: 4px; vertical-align: 2px; }
   .etiqueta-tipo { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); white-space: nowrap; }
   .estado { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; white-space: nowrap; }
   .estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
   .estado.ok { color: var(--ok); } .estado.aviso { color: var(--aviso); } .estado.error { color: var(--error); } .estado.pend { color: var(--muted); }
   .acciones { display: flex; gap: 6px; justify-content: flex-end; }
+  .acciones button { white-space: nowrap; }
 
   dialog { border: 0; border-radius: 12px; padding: 0; max-width: 440px; width: calc(100% - 32px); background: var(--card); color: var(--text); box-shadow: 0 20px 50px rgba(0,0,0,.3); }
   dialog::backdrop { background: rgba(0,0,0,.45); }
@@ -121,11 +129,29 @@
     </div>
     <p class="sub">"Re-detectar" vuelve a buscar sus APIs (por ejemplo, si se instaló una nueva). Eliminar deja de vigilarlo; su historial en MongoDB se conserva.</p>
     <div class="tabla"><table>
-      <thead><tr><th>Servidor</th><th>Tipo</th><th class="num">APIs directas</th><th class="num">Vía gateway/proxy</th><th>Estado actual</th><th></th></tr></thead>
-      <tbody id="lista"><tr><td colspan="6" style="color:var(--muted)">Cargando…</td></tr></tbody>
+      <thead><tr><th>Servidor</th><th>Tipo</th><th class="num">APIs directas</th><th class="num">Vía gateway/proxy</th><th>Estado actual</th><th>SSL</th><th></th></tr></thead>
+      <tbody id="lista"><tr><td colspan="7" style="color:var(--muted)">Cargando…</td></tr></tbody>
     </table></div>
   </section>
 </main>
+
+<dialog id="dlgMantencion">
+  <form method="dialog" class="dialogo">
+    <h3><span style="font-size:20px">🔧</span> <span id="mantTitulo">Poner en mantención</span></h3>
+    <p>Mientras dure, sus fallas se siguen mostrando pero <b>no generan incidentes ni alertas</b> y no cuentan para la disponibilidad.</p>
+    <div class="duraciones" role="radiogroup" aria-label="Duración">
+      <label><input type="radio" name="minutos" value="30"> 30 min</label>
+      <label><input type="radio" name="minutos" value="60" checked> 1 hora</label>
+      <label><input type="radio" name="minutos" value="120"> 2 horas</label>
+      <label><input type="radio" name="minutos" value="240"> 4 horas</label>
+    </div>
+    <label class="campo" style="margin-top:12px"><input id="mantMotivo" maxlength="200" placeholder="Motivo (opcional), por ejemplo: despliegue de APITicket"></label>
+    <div class="botones">
+      <button value="cancelar" class="secundario" style="padding:10px 16px;font-size:14px">Cancelar</button>
+      <button value="aplicar" class="primario">Poner en mantención</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="confirmar">
   <form method="dialog" class="dialogo">
@@ -174,7 +200,27 @@ function describir(s) {
   return partes.join(' + ');
 }
 
+const hora = (t) => new Date(t).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+
+function sslTexto(c) {
+  if (!c || c.dias == null) return '<span class="estado pend">—</span>';
+  if (c.dias < 0) return '<span class="estado error">Vencido</span>';
+  const extra = c.invalidos?.length ? ` · ${c.invalidos.map((i) => ':' + i.puerto + ' ' + i.problema).join('; ')}` : '';
+  return `<span class="estado ${c.nivel === 'ok' ? 'ok' : c.nivel}" title="Vence el ${new Date(c.venceEl).toLocaleDateString('es-CL')} · ${esc(c.emisor || '')}">${c.dias} días${esc(extra)}</span>`;
+}
+
+// APIs que tienen los demás servidores del mismo tipo y este no: no se están vigilando.
+function derivaHtml(s) {
+  const f = s.deriva?.faltantes || [];
+  if (!f.length) return '';
+  const lista = f.map((x) => `${esc(x.nombre)} ${x.puerto ? ':' + x.puerto : '/' + esc(x.servicio)}`).join(', ');
+  const datos = esc(JSON.stringify({ puertos: f.filter((x) => x.puerto).map((x) => x.puerto), servicios: f.filter((x) => x.servicio).map((x) => x.servicio) }));
+  return `<div class="deriva">⚠ No se vigila ${f.length === 1 ? 'una API' : f.length + ' APIs'} que tienen los demás: ${lista}
+    <button class="secundario" data-vigilar="${esc(s.nombre)}" data-faltantes="${datos}" title="Sumarlas al monitoreo: si no están corriendo, aparecerán en rojo">Vigilar</button></div>`;
+}
+
 function estadoTexto(s) {
+  if (s.mantencion) return `<span class="estado mant">🔧 Mantención hasta ${hora(s.mantencion.hasta)}</span>`;
   if (!s.total) return '<span class="estado pend">Esperando revisión</span>';
   if (s.caidas === s.total) return '<span class="estado error">Caído</span>';
   if (s.caidas) return `<span class="estado error">${s.caidas} ${s.caidas === 1 ? 'caída' : 'caídas'}</span>`;
@@ -195,15 +241,19 @@ async function cargarLista() {
         <td><span class="etiqueta-tipo">${NOMBRE_TIPO[s.tipo]}${s.puertoGateway ? ' :' + s.puertoGateway : ''}</span></td>
         <td class="num">${s.directas}</td>
         <td class="num">${s.viaGateway || '—'}</td>
-        <td>${estadoTexto(s)}</td>
+        <td>${estadoTexto(s)}${derivaHtml(s)}</td>
+        <td>${sslTexto(s.ssl)}</td>
         <td><div class="acciones">
           ${s.demo ? '<button class="secundario" data-quitar-demo>Quitar demo</button>' : `
+          ${s.mantencion
+            ? `<button class="secundario" data-fin-mantencion="${esc(s.nombre)}">Terminar mantención</button>`
+            : `<button class="secundario" data-mantencion="${esc(s.nombre)}" title="Silenciar mientras despliegan">🔧 Mantención</button>`}
           <button class="secundario" data-redetectar="${esc(s.nombre)}">Re-detectar</button>
           <button class="peligro" data-eliminar="${esc(s.nombre)}" data-host="${esc(s.host)}">Eliminar</button>`}
         </div></td>
-      </tr>`).join('') || '<tr><td colspan="6" style="color:var(--muted)">No hay servidores.</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="7" style="color:var(--muted)">No hay servidores.</td></tr>';
   } catch (e) {
-    $('lista').innerHTML = `<tr><td colspan="6" style="color:var(--error)">${esc(e.message)}</td></tr>`;
+    $('lista').innerHTML = `<tr><td colspan="7" style="color:var(--error)">${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -240,6 +290,47 @@ $('btnDemo').addEventListener('click', () => cambiarDemo(!demoActivo));
 
 $('lista').addEventListener('click', async (e) => {
   if (e.target.closest('[data-quitar-demo]')) return cambiarDemo(false);
+
+  const vig = e.target.closest('[data-vigilar]');
+  if (vig) {
+    vig.disabled = true; vig.textContent = 'Revisando…';
+    try {
+      const { servidor: s } = await api('POST', '/api/servidores/vigilar', { nombre: vig.dataset.vigilar, ...JSON.parse(vig.dataset.faltantes) });
+      mensaje(s.caidas ? 'aviso' : 'ok', s.caidas
+        ? `✓ Ahora se vigilan en <b>${esc(cap(s.nombre))}</b>. ⚠ ${s.caidas} no responde${s.caidas === 1 ? '' : 'n'}: revisa en Estado en vivo por qué.`
+        : `✓ Ahora se vigilan en <b>${esc(cap(s.nombre))}</b> y responden bien.`);
+    } catch (err) { mensaje('error', `✗ ${esc(err.message)}`); }
+    return cargarLista();
+  }
+
+  const fin = e.target.closest('[data-fin-mantencion]');
+  if (fin) {
+    try {
+      await api('POST', '/api/servidores/mantencion', { nombre: fin.dataset.finMantencion, minutos: 0 });
+      mensaje('ok', `✓ Terminó la mantención de <b>${esc(cap(fin.dataset.finMantencion))}</b>; ya se revisó de nuevo.`);
+    } catch (err) { mensaje('error', `✗ ${esc(err.message)}`); }
+    return cargarLista();
+  }
+
+  const mant = e.target.closest('[data-mantencion]');
+  if (mant) {
+    const nombre = mant.dataset.mantencion;
+    $('mantTitulo').textContent = `Poner ${cap(nombre)} en mantención`;
+    $('mantMotivo').value = '';
+    $('dlgMantencion').returnValue = '';
+    $('dlgMantencion').showModal();
+    $('dlgMantencion').addEventListener('close', async function alCerrar() {
+      $('dlgMantencion').removeEventListener('close', alCerrar);
+      if ($('dlgMantencion').returnValue !== 'aplicar') return;
+      const minutos = Number(document.querySelector('input[name="minutos"]:checked').value);
+      try {
+        await api('POST', '/api/servidores/mantencion', { nombre, minutos, motivo: $('mantMotivo').value.trim() });
+        mensaje('ok', `✓ <b>${esc(cap(nombre))}</b> en mantención por ${minutos >= 60 ? minutos / 60 + (minutos === 60 ? ' hora' : ' horas') : minutos + ' min'}.`);
+      } catch (err) { mensaje('error', `✗ ${esc(err.message)}`); }
+      cargarLista();
+    });
+    return;
+  }
   const re = e.target.closest('[data-redetectar]');
   const el = e.target.closest('[data-eliminar]');
   if (re) {

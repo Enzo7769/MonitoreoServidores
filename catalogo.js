@@ -30,7 +30,9 @@ const puertos = {
   3023: { nombre: 'APIEstadisticas' },
   3024: { nombre: 'APIDatosMonitoreo' },
   3025: { nombre: 'APIMonitoreo' },
-  3026: { nombre: 'WebSocketVideo', tipo: 'ws' },
+  // En producción apiHistorialUac corre en el 3026 (así la llaman los fronts de UAC),
+  // aunque su .env local diga 3013. El WebSocketVideo desplegado es el 3085.
+  3026: { nombre: 'apiHistorialUac' },
   3027: { nombre: 'WSEncolador', tipo: 'ws' },
   3028: { nombre: 'WSEstadistica', tipo: 'ws' },
   3029: { nombre: 'wssAlimentaBarra', tipo: 'ws' },
@@ -38,7 +40,7 @@ const puertos = {
   3031: { nombre: 'APILlamadoCita' },
   3032: { nombre: 'APICitasUDT' },
   3033: { nombre: 'APIRestfulIngresaArchivos' },
-  3085: { nombre: 'WS Video (visor)', tipo: 'ws' },
+  3085: { nombre: 'WebSocketVideo', tipo: 'ws' },
   4000: { nombre: 'APIGatewayFila', health: ['/health', '/ping'] },
 };
 

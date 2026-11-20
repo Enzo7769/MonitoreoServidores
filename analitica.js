@@ -1,6 +1,7 @@
 // Cálculos para el dashboard a partir de los ciclos guardados en MongoDB.
 // Cada ciclo: { t, d: { "servidor|id": [nivel, ms] } }
-// nivel: o = ok, a = aviso, e = error, s = sin acceso (no cuenta para disponibilidad)
+// nivel: o = ok, a = aviso, e = error, s = sin acceso, m = falla durante una mantención
+// (s y m no cuentan para la disponibilidad)
 
 const CODIGO = { ok: 'o', aviso: 'a', error: 'e', sinacceso: 's' };
 
@@ -41,7 +42,7 @@ function calcular(ciclosTodos, { horas, servidor }, nombreApi) {
     for (const [clave, [nivel, ms, tipoError]] of Object.entries(ciclo.d)) {
       const [srv, id] = separarClave(clave);
       if (servidor && srv !== servidor) continue;
-      if (nivel === 's') continue;
+      if (nivel === 's' || nivel === 'm') continue;
 
       const falla = nivel === 'e';
       const aviso = nivel === 'a';
@@ -133,7 +134,7 @@ function resumenDiario(ciclosTodos, fecha, zona, intervaloSegundos, nombreApi) {
   for (const ciclo of ciclosTodos) {
     if (fechaLocal(ciclo.t, zona) !== fecha) continue;
     for (const [clave, [nivel, ms, tipoError]] of Object.entries(ciclo.d)) {
-      if (nivel === 's') continue;
+      if (nivel === 's' || nivel === 'm') continue;
       if (!apis.has(clave)) apis.set(clave, { ...nuevoAcum(), incidentes: 0, enFalla: false, ultimoError: null });
       const a = apis.get(clave);
       const falla = nivel === 'e';

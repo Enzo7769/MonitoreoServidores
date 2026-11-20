@@ -170,7 +170,7 @@
   </section>
   <section class="tarjeta c-6">
     <h2>Incidentes recientes</h2>
-    <p class="sub">Cada vez que una API pasó a caída</p>
+    <p class="sub">Agrupados por causa (un servidor caído cuenta como un incidente), con hora exacta de inicio y fin</p>
     <div class="tabla-scroll" id="tablaIncidentes"></div>
   </section>
 </main>
@@ -401,7 +401,7 @@ function pintar() {
     '</tbody></table>' : '<p class="nada">Ninguna API falló en el periodo. 🎉</p>';
 
   $('tablaIncidentes').innerHTML = d.incidentes.length ? `<table><thead><tr><th>Inicio</th><th>Servidor</th><th>API</th><th>Tipo de error</th><th class="num">Duración</th><th>Estado</th></tr></thead><tbody>` +
-    d.incidentes.map((i) => `<tr><td>${fmtFechaLarga(i.inicio)}</td><td>${esc(cap(i.servidor))}</td><td>${esc(i.api)}</td><td>${esc(i.tipo || '—')}</td><td class="num">${i.activo ? '≥ ' : ''}${fmtDuracion(i.duracionMs)}</td><td>${i.activo ? '<span class="estado mal">Activo</span>' : '<span class="estado bien">Resuelto</span>'}</td></tr>`).join('') +
+    d.incidentes.map((i) => `<tr><td>${fmtFechaLarga(i.inicio)}</td><td>${esc(cap(i.servidor))}</td><td>${esc(i.api)}${i.apis?.length > 1 ? ` <span style="color:var(--muted)">(${i.apis.length} APIs)</span>` : ''}</td><td>${esc(i.tipo || '—')}</td><td class="num">${i.activo ? '≥ ' : ''}${fmtDuracion(i.duracionMs)}</td><td>${i.activo ? '<span class="estado mal">Activo</span>' : '<span class="estado bien">Resuelto</span>'}</td></tr>`).join('') +
     '</tbody></table>' : '<p class="nada">Sin incidentes en el periodo. 🎉</p>';
 
   $('avisoDatos').innerHTML = d.ciclos < 4

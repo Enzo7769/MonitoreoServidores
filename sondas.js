@@ -70,6 +70,22 @@ function leerJson(texto) {
   try { return JSON.parse(texto); } catch { return null; }
 }
 
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Los WebSockets de DTS son Socket.IO: el saludo real es una petición "polling" de Engine.IO,
+// que debe responder 200 con una sesión: 0{"sid":"...", ...}  (EIO=3 antepone el largo: "96:0{...").
+const RUTA_SOCKETIO = '/socket.io/?EIO=4&transport=polling';
+const esSesionSocketIO = (codigo, cuerpo) => codigo === 200 && /^(\d+:)?0\{.*"sid"/s.test(cuerpo || '');
+
+async function probarSocketIO(protoPreferido, host, port, timeoutMs) {
+  let r = await pedirAuto(protoPreferido, host, port, RUTA_SOCKETIO, timeoutMs);
+  // Servidores con python-socketio antiguo solo hablan Engine.IO 3.
+  if (r.codigo === 400 && /unsupported|version/i.test(r.cuerpo)) {
+    r = await pedirAuto(r.proto, host, port, RUTA_SOCKETIO.replace('EIO=4', 'EIO=3'), timeoutMs);
+  }
+  return { ...r, sesion: esSesionSocketIO(r.codigo, r.cuerpo) };
+}
+
 async function enParalelo(tareas, limite) {
   let i = 0;
   const trabajador = async () => {
@@ -78,4 +94,4 @@ async function enParalelo(tareas, limite) {
   await Promise.all(Array.from({ length: Math.min(limite, tareas.length) }, trabajador));
 }
 
-module.exports = { probarTcp, pedirAuto, leerJson, enParalelo };
+module.exports = { probarTcp, pedirAuto, probarSocketIO, RUTA_SOCKETIO, leerJson, esperar, enParalelo };

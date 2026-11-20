@@ -8,12 +8,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { puertos: catalogo, serviciosGateway } = require('./catalogo');
-const { probarTcp, pedirAuto, leerJson, enParalelo } = require('./sondas');
+const { pedirAuto, probarSocketIO, RUTA_SOCKETIO, leerJson, esperar, enParalelo } = require('./sondas');
 const analitica = require('./analitica');
 const almacen = require('./almacen');
 const descubrimiento = require('./descubrimiento');
 const diagnostico = require('./diagnostico');
 const demo = require('./demo');
+const certificados = require('./certificados');
+const { calcularDeriva } = require('./deriva');
+const Incidentes = require('./incidentes');
 
 const RUTA_CREDENCIALES = path.join(__dirname, 'credenciales.json');
 const RUTA_EVENTOS = path.join(__dirname, 'logs', 'eventos.log');
@@ -26,9 +29,20 @@ const estado = new Map(); // clave -> resultado + historial
 const protoCache = new Map(); // "host:puerto" -> 'https' | 'http'
 const tokens = new Map(); // host -> { token } | { error }
 const logins = new Map(); // host -> Promise en curso (evita logins duplicados en paralelo)
+const certs = new Map(); // host -> resumen de certificados SSL (ver certificados.js)
+const incidentes = new Incidentes(almacen);
 let ultimaRevision = null;
 let proximaRevision = null;
 let revisando = false;
+
+// Valores por defecto de la fase 1 (se pueden cambiar en servidores.json).
+const opcion = (clave, porDefecto) => config[clave] ?? porDefecto;
+const ESPERAS_CONFIRMACION = () => opcion('confirmacionEsperasMs', [3000, 8000]);
+const INTERVALO_FALLA_MS = () => opcion('intervaloFallaSegundos', 60) * 1000;
+const SSL_AVISO_DIAS = () => opcion('sslAvisoDias', 30);
+const SSL_CADA_MS = () => opcion('sslRevisarHoras', 6) * 3600e3;
+
+const enMantencion = (srv) => !!srv.mantencion && srv.mantencion.hasta > Date.now();
 
 function leerConfig() {
   return descubrimiento.leerConfig();
@@ -56,9 +70,19 @@ async function revisarApi(srv, puerto) {
   const ctx = { nombre: def.nombre, host: srv.host, puerto, ws: def.tipo === 'ws', timeoutMs, lentoMs };
 
   if (def.tipo === 'ws') {
-    const r = await probarTcp(srv.host, puerto, timeoutMs);
-    if (r.ok) return { nivel: 'ok', detalle: 'WebSocket acepta conexiones', ms: r.ms };
-    return conError('error', diagnostico.deRed({ code: r.codigo, fase: 'conexion' }, ctx), { ms: r.ms });
+    // Socket.IO: no basta con que el puerto esté abierto, tiene que entregar una sesión.
+    ctx.ruta = RUTA_SOCKETIO;
+    let r;
+    try {
+      r = await probarSocketIO(protoCache.get(clave), srv.host, puerto, timeoutMs);
+    } catch (e) {
+      return conError('error', diagnostico.deRed(e, ctx));
+    }
+    protoCache.set(clave, r.proto);
+    const base = { ms: r.ms, codigo: r.codigo, ruta: RUTA_SOCKETIO, cuerpo: r.cuerpo.slice(0, 300) };
+    if (!r.sesion) return conError('aviso', diagnostico.noSocketIO(r.codigo, r.cuerpo, ctx), base);
+    if (r.ms > lentoMs) return conError('aviso', diagnostico.lenta(r.ms, ctx), base);
+    return { ...base, nivel: 'ok', detalle: 'Socket.IO acepta sesiones' };
   }
 
   let ultimo = null;
@@ -210,14 +234,16 @@ function registrarEvento(texto) {
   fs.appendFileSync(RUTA_EVENTOS, linea);
 }
 
-function guardarResultado(clave, etiqueta, r) {
+function guardarResultado(clave, etiqueta, r, srv) {
   const previo = estado.get(clave);
   const historial = [...(previo?.historial || []), r.nivel].slice(-HISTORIAL_MAX);
   const cambio = !previo || previo.nivel !== r.nivel;
-  if (previo && cambio) {
+  const nota = srv && enMantencion(srv) ? ' [en mantención]' : '';
+  if (previo && cambio && etiqueta) {
     const porQue = r.error ? `${r.error.titulo} — ${r.error.causa} [${r.error.tecnico}]` : r.detalle;
-    registrarEvento(`${etiqueta}  ${previo.nivel} -> ${r.nivel}  (${porQue})`);
+    registrarEvento(`${etiqueta}  ${previo.nivel} -> ${r.nivel}  (${porQue})${nota}`);
   }
+  if (r.fallaMomentanea && etiqueta) registrarEvento(`${etiqueta}  falla momentánea (${r.fallaMomentanea}), se recuperó al reintentar${nota}`);
   const ultimoOk = r.nivel === 'ok' ? Date.now() : previo?.ultimoOk ?? null;
   estado.set(clave, { ...r, historial, ultimoOk, desde: cambio ? Date.now() : previo.desde, revisado: Date.now() });
 }
@@ -227,33 +253,59 @@ function servidoresActivos() {
   return config.demo ? [...config.servidores, demo.SERVIDOR] : config.servidores;
 }
 
-// Una tarea por API del servidor (directas y vía gateway).
-function tareasDe(srv, anotar = () => {}) {
+// Cada API de un servidor como "ítem": su clave en el estado y cómo revisarla.
+function itemsDe(srv) {
   if (srv.demo) {
-    // Simulado y sin "anotar": el servidor de demostración nunca llega a MongoDB.
     return [
-      ...srv.puertos.map((puerto) => async () => guardarResultado(`${srv.host}:${puerto}`, '', demo.resultadoPuerto(puerto))),
-      ...srv.gateway.servicios.map((servicio) => async () => guardarResultado(`${srv.host}:gw:${servicio}`, '', demo.resultadoServicio(servicio))),
+      ...srv.puertos.map((puerto) => ({ id: String(puerto), clave: `${srv.host}:${puerto}`, revisar: async () => demo.resultadoPuerto(puerto) })),
+      ...srv.gateway.servicios.map((servicio) => ({ id: `gw:${servicio}`, clave: `${srv.host}:gw:${servicio}`, revisar: async () => demo.resultadoServicio(servicio) })),
     ];
   }
   return [
-    ...srv.puertos.map((puerto) => async () => {
-      const r = await revisarApi(srv, puerto);
-      guardarResultado(`${srv.host}:${puerto}`, `[${srv.nombre}] ${definicionPuerto(srv, puerto).nombre}:${puerto}`, r);
-      anotar(srv, puerto, r);
-    }),
-    ...(srv.gateway?.servicios || []).map((servicio) => async () => {
-      const r = await revisarServicioGateway(srv, servicio);
-      guardarResultado(`${srv.host}:gw:${servicio}`, `[${srv.nombre}] gateway/${servicio}`, r);
-      anotar(srv, `gw:${servicio}`, r);
-    }),
+    ...srv.puertos.map((puerto) => ({
+      id: String(puerto), clave: `${srv.host}:${puerto}`,
+      etiqueta: `[${srv.nombre}] ${definicionPuerto(srv, puerto).nombre}:${puerto}`,
+      revisar: () => revisarApi(srv, puerto),
+    })),
+    ...(srv.gateway?.servicios || []).map((servicio) => ({
+      id: `gw:${servicio}`, clave: `${srv.host}:gw:${servicio}`,
+      etiqueta: `[${srv.nombre}] gateway/${servicio}`,
+      revisar: () => revisarServicioGateway(srv, servicio),
+    })),
   ];
+}
+
+// Confirmar antes de alarmar: si falla, se reintenta (por defecto a los 3 s y a los 8 s).
+// Solo es caída si falla todas las veces; si se recupera, queda como "falla momentánea".
+async function conConfirmacion(revisar) {
+  const primera = await revisar();
+  if (primera.nivel !== 'error') return primera;
+  let ultima = primera;
+  for (const espera of ESPERAS_CONFIRMACION()) {
+    await esperar(espera);
+    ultima = await revisar();
+    if (ultima.nivel !== 'error') return { ...ultima, fallaMomentanea: primera.error?.titulo || primera.detalle };
+  }
+  return { ...ultima, intentos: ESPERAS_CONFIRMACION().length + 1 };
+}
+
+// Nivel que se guarda en MongoDB: durante una mantención no cuenta para la disponibilidad.
+const codigoHistorial = (srv, r) => (enMantencion(srv) && r.nivel !== 'ok' ? 'm' : analitica.CODIGO[r.nivel]);
+
+// Una tarea por API. filtro: para revisar solo algunas (el seguimiento de las caídas).
+function tareasDe(srv, anotar = () => {}, { confirmar = true, filtro = () => true } = {}) {
+  return itemsDe(srv).filter(filtro).map((item) => async () => {
+    const r = confirmar && !srv.demo ? await conConfirmacion(item.revisar) : await item.revisar();
+    guardarResultado(item.clave, item.etiqueta, r, srv);
+    if (!srv.demo) anotar(srv, item.id, r); // el servidor de demostración nunca llega a MongoDB
+  });
 }
 
 // Revisa un solo servidor (recién agregado o re-detectado) para que se vea de inmediato.
 // No se guarda en MongoDB: el historial sigue el ritmo normal de cada 15 minutos.
 async function revisarServidor(srv) {
   await enParalelo(tareasDe(srv), 30);
+  await evaluarIncidentes();
 }
 
 // Si ya hay una revisión en curso, se espera esa en vez de lanzar otra.
@@ -274,14 +326,14 @@ async function ejecutarRevision() {
     const registro = {}; // para el historial del dashboard
     // [nivel, ms] o, si hubo falla, [nivel, ms, "tipo de error"] para los incidentes del dashboard.
     const anotar = (srv, id, r) => {
-      registro[`${srv.nombre}|${id}`] = r.error
-        ? [analitica.CODIGO[r.nivel], r.ms ?? null, r.error.titulo]
-        : [analitica.CODIGO[r.nivel], r.ms ?? null];
+      const codigo = codigoHistorial(srv, r);
+      registro[`${srv.nombre}|${id}`] = r.error ? [codigo, r.ms ?? null, r.error.titulo] : [codigo, r.ms ?? null];
     };
     await enParalelo(servidoresActivos().flatMap((srv) => tareasDe(srv, anotar)), 60);
     ultimaRevision = Date.now();
     await almacen.guardarCiclo(ultimaRevision, registro);
     cacheCiclos.clear();
+    await evaluarIncidentes();
   } catch (e) {
     console.error('Error en revisión:', e);
   } finally {
@@ -289,20 +341,160 @@ async function ejecutarRevision() {
   }
 }
 
+// ---- Seguimiento rápido: mientras algo esté caído, se revisa solo eso cada 1 minuto ----
+// Así se sabe con precisión cuándo volvió. No se guarda en "revisiones" (que sigue cada
+// 15 min para no distorsionar la disponibilidad); la hora exacta queda en el incidente.
+
+const seguimiento = { activo: false, proxima: null, timer: null, ultima: null };
+
+const enFalla = (srv) => (item) => estado.get(item.clave)?.nivel === 'error';
+const hayFallasReales = () => config.servidores.some((srv) => !enMantencion(srv) && itemsDe(srv).some(enFalla(srv)));
+
+function programarSeguimiento() {
+  clearTimeout(seguimiento.timer);
+  if (!hayFallasReales()) {
+    Object.assign(seguimiento, { activo: false, proxima: null });
+    return;
+  }
+  seguimiento.activo = true;
+  seguimiento.proxima = Date.now() + INTERVALO_FALLA_MS();
+  seguimiento.timer = setTimeout(revisionRapida, INTERVALO_FALLA_MS());
+}
+
+async function revisionRapida() {
+  // Si la revisión completa está por empezar o en curso, ella se encarga.
+  if (cicloEnCurso || (proximaRevision && proximaRevision - Date.now() < 20000)) return programarSeguimiento();
+  try {
+    const tareas = config.servidores.flatMap((srv) => tareasDe(srv, undefined, { confirmar: false, filtro: enFalla(srv) }));
+    await enParalelo(tareas, 30);
+    seguimiento.ultima = Date.now();
+    await evaluarIncidentes();
+  } catch (e) {
+    console.error('Error en el seguimiento rápido:', e);
+  }
+  programarSeguimiento();
+}
+
+// ---- Incidentes agrupados por causa raíz -------------------------------------
+
+const ERRORES_DE_RED = new Set(['PUERTO_CERRADO', 'TIMEOUT_CONEXION', 'TIMEOUT_RESPUESTA', 'CONEXION_CORTADA', 'DNS', 'INALCANZABLE', 'SSL']);
+const nombreItem = (a) => `${a.nombre}${a.servicio ? ' /' + a.servicio : ' :' + a.puerto}`;
+
+// Convierte el estado actual en grupos de falla: un servidor caído entero, MongoDB caído
+// (varias APIs con error de base de datos), el gateway caído, o cada API por separado.
+function agruparFallas() {
+  const grupos = new Map();
+  for (const s of construirEstado({ conIncidentes: false }).servidores) {
+    if (s.mantencion) continue;
+    const srvCfg = servidoresActivos().find((x) => x.nombre === s.nombre);
+    const persistir = !s.demo;
+    const vigiladas = s.apis.filter((a) => a.nivel !== 'sinacceso' && a.nivel !== 'pendiente');
+    let fallas = vigiladas.filter((a) => a.nivel === 'error');
+    const agregar = (clave, g) => grupos.set(`${s.nombre}|${clave}`, { servidor: s.nombre, persistir, ...g });
+
+    const sslInc = certificados.incidenteSsl(s.nombre, s.host, s.ssl);
+    if (sslInc) agregar('ssl', { alcance: 'ssl', ...sslInc });
+    if (!fallas.length) continue;
+
+    // "Servidor sin respuesta" solo si fallan todas y ninguna alcanzó a responder HTTP
+    // (si alguna devolvió un 500, el servidor está arriba: son fallas de cada API).
+    if (vigiladas.length >= 2 && fallas.length === vigiladas.length && fallas.every((a) => ERRORES_DE_RED.has(a.error?.tipo))) {
+      const tipos = new Set(fallas.map((a) => a.error?.tipo));
+      const comun = tipos.size === 1 ? fallas[0].error : null;
+      agregar('servidor', {
+        alcance: 'servidor', nivel: 'error', titulo: 'Servidor sin respuesta', tipo: comun?.titulo || 'Todas las APIs fallan',
+        causa: comun ? `Las ${fallas.length} APIs de ${s.host} fallan con el mismo error. ${comun.causa}` : `Las ${fallas.length} APIs de ${s.host} fallan a la vez: el servidor está apagado, sin red o con un problema general.`,
+        sugerencia: comun?.sugerencia || `Entra a ${s.host} y revisa que esté encendido, con red y con espacio en disco.`,
+        apis: fallas.map(nombreItem),
+      });
+      continue;
+    }
+
+    const mongo = fallas.filter((a) => a.error?.tipo === 'MONGO');
+    if (mongo.length >= 2) {
+      agregar('mongo', {
+        alcance: 'mongo', nivel: 'error', titulo: `MongoDB no disponible (${mongo.length} APIs)`, tipo: 'Base de datos no disponible',
+        causa: `${mongo.length} APIs de ${s.host} no pueden conectarse a MongoDB al mismo tiempo: el problema es la base de datos, no cada API.`,
+        sugerencia: mongo[0].error.sugerencia, apis: mongo.map(nombreItem),
+      });
+      fallas = fallas.filter((a) => !mongo.includes(a));
+    }
+
+    const puertoGw = srvCfg?.gateway?.puerto;
+    // El propio puerto del gateway y los servicios que pasan por él (todos tienen puerto = puertoGw).
+    const gwCaido = fallas.filter((a) => a.puerto === puertoGw && ERRORES_DE_RED.has(a.error?.tipo));
+    if (puertoGw && gwCaido.length >= 2) {
+      agregar('gateway', {
+        alcance: 'gateway', nivel: 'error', titulo: `Gateway sin respuesta (${gwCaido.length} APIs)`, tipo: gwCaido[0].error.titulo,
+        causa: `El gateway de ${s.host} (:${puertoGw}) no responde, así que ninguna API que depende de él es alcanzable. ${gwCaido[0].error.causa}`,
+        sugerencia: gwCaido[0].error.sugerencia, apis: gwCaido.map(nombreItem),
+      });
+      fallas = fallas.filter((a) => !gwCaido.includes(a));
+    }
+
+    for (const a of fallas) {
+      agregar(a.id, {
+        alcance: 'api', nivel: 'error', titulo: nombreItem(a), tipo: a.error?.titulo || a.detalle,
+        causa: a.error?.causa || a.detalle, sugerencia: a.error?.sugerencia || '', apis: [nombreItem(a)],
+      });
+    }
+  }
+  return grupos;
+}
+
+async function evaluarIncidentes() {
+  try {
+    await incidentes.evaluar(agruparFallas());
+  } catch (e) {
+    console.error('Error evaluando incidentes:', e);
+  }
+}
+
+incidentes.on('abierto', (i) => registrarEvento(`[${i.servidor}] INCIDENTE abierto: ${i.titulo} — ${i.tipo}`));
+incidentes.on('resuelto', (i) => registrarEvento(`[${i.servidor}] INCIDENTE resuelto: ${i.titulo} (duró ${Math.round((i.fin - i.inicio) / 60000)} min)`));
+
+// ---- Certificados SSL (cada 6 h por servidor) --------------------------------
+
+async function revisarCertificados() {
+  const pendientes = config.servidores.filter((srv) => Date.now() - (certs.get(srv.host)?.revisado || 0) > SSL_CADA_MS());
+  await enParalelo(pendientes.map((srv) => async () => {
+    const puertos = [...new Set([...srv.puertos, ...(srv.gateway ? [srv.gateway.puerto] : [])])];
+    certs.set(srv.host, await certificados.revisarServidor(srv.host, puertos, { timeoutMs: config.timeoutMs, avisoDias: SSL_AVISO_DIAS() }));
+  }), 4);
+  if (pendientes.length) await evaluarIncidentes();
+}
+
 const PENDIENTE = { nivel: 'pendiente', detalle: 'Esperando primera revisión', historial: [] };
 
-function construirEstado() {
+// Solo se comparan APIs conocidas (catálogo); rutas internas del gateway como /status no cuentan.
+function derivaActual() {
+  const reales = config.servidores.map((s) => ({
+    ...s,
+    tipo: descubrimiento.tipoDe(s),
+    puertos: s.puertos.filter((p) => catalogo[p]),
+    gateway: s.gateway && { ...s.gateway, servicios: s.gateway.servicios.filter((sv) => serviciosGateway[sv]) },
+  }));
+  return calcularDeriva(reales, (p) => catalogo[p].nombre, (sv) => serviciosGateway[sv]);
+}
+
+function construirEstado({ conIncidentes = true } = {}) {
+  const deriva = derivaActual();
   return {
     actualizado: ultimaRevision,
     proximaRevision,
     revisando,
+    seguimiento: { activo: seguimiento.activo, proxima: seguimiento.proxima, ultima: seguimiento.ultima, cadaSegundos: INTERVALO_FALLA_MS() / 1000 },
     mongo: almacen.conectado(),
     intervaloSegundos: config.intervaloSegundos,
+    ...(conIncidentes ? { incidentes: incidentes.lista() } : {}),
     servidores: servidoresActivos().map((srv) => ({
       nombre: srv.nombre,
       host: srv.host,
       tipo: descubrimiento.tipoDe(srv),
       demo: !!srv.demo,
+      mantencion: enMantencion(srv) ? srv.mantencion : null,
+      ssl: srv.demo ? demo.certificado() : certs.get(srv.host) || null,
+      deriva: deriva.get(srv.nombre) || null,
       apis: [
         ...srv.puertos.map((puerto) => {
           const def = definicionPuerto(srv, puerto);
@@ -338,9 +530,10 @@ function nombreApi(nombreServidor, id) {
 
 // Estado actual (no histórico) para los indicadores "ahora" del dashboard.
 function resumenActual(filtroServidor) {
-  const servidores = construirEstado().servidores.filter((s) => !filtroServidor || s.nombre === filtroServidor);
+  const servidores = construirEstado({ conIncidentes: false }).servidores.filter((s) => !filtroServidor || s.nombre === filtroServidor);
   let apis = 0, caidas = 0, conProblemas = 0;
   for (const s of servidores) {
+    if (s.mantencion) continue; // en mantención: sus fallas son esperables
     const vigiladas = s.apis.filter((a) => a.nivel !== 'sinacceso' && a.nivel !== 'pendiente');
     apis += vigiladas.length;
     caidas += vigiladas.filter((a) => a.nivel === 'error').length;
@@ -404,14 +597,17 @@ function responder(res, codigo, datos) {
 }
 
 function resumenServidor(srv) {
-  const apis = construirEstado().servidores.find((s) => s.nombre === srv.nombre)?.apis || [];
-  const vigiladas = apis.filter((a) => a.nivel !== 'sinacceso' && a.nivel !== 'pendiente');
+  const s = construirEstado({ conIncidentes: false }).servidores.find((x) => x.nombre === srv.nombre);
+  const vigiladas = (s?.apis || []).filter((a) => a.nivel !== 'sinacceso' && a.nivel !== 'pendiente');
   return {
     nombre: srv.nombre,
     host: srv.host,
     tipo: descubrimiento.tipoDe(srv),
     puertoGateway: srv.gateway?.puerto ?? null,
     demo: !!srv.demo,
+    mantencion: s?.mantencion || null,
+    ssl: s?.ssl || null,
+    deriva: s?.deriva || null,
     directas: srv.puertos.length,
     viaGateway: srv.gateway?.servicios.length ?? 0,
     ok: vigiladas.filter((a) => a.nivel === 'ok').length,
@@ -504,6 +700,44 @@ async function administrarServidores(req, res, url) {
     return responder(res, 200, { servidor: resumenServidor(srv), aviso });
   }
 
+  // POST /api/servidores/mantencion { nombre, minutos, motivo } -> silenciar (minutos 0 = terminar)
+  if (req.method === 'POST' && url.pathname === '/api/servidores/mantencion') {
+    const { nombre, minutos, motivo } = await leerCuerpo(req);
+    const cfg = leerConfig();
+    const srv = cfg.servidores.find((s) => s.nombre === nombre);
+    if (!srv) return responder(res, 404, { error: 'Servidor no encontrado' });
+    const min = Math.min(Math.max(Number(minutos) || 0, 0), 24 * 60);
+    if (min > 0) {
+      srv.mantencion = { desde: Date.now(), hasta: Date.now() + min * 60000, motivo: String(motivo || '').slice(0, 200) };
+      registrarEvento(`[${nombre}] en mantención por ${min} min${srv.mantencion.motivo ? ` (${srv.mantencion.motivo})` : ''}`);
+    } else {
+      delete srv.mantencion;
+      registrarEvento(`[${nombre}] fin de la mantención`);
+    }
+    descubrimiento.guardarConfig(cfg);
+    config = cfg;
+    if (min === 0) await revisarServidor(srv); // ver de inmediato cómo quedó
+    else await evaluarIncidentes(); // cierra sus incidentes abiertos
+    return responder(res, 200, { servidor: resumenServidor(srv) });
+  }
+
+  // POST /api/servidores/vigilar { nombre, puertos[], servicios[] } -> sumar APIs que "deberían" estar
+  if (req.method === 'POST' && url.pathname === '/api/servidores/vigilar') {
+    const { nombre, puertos = [], servicios = [] } = await leerCuerpo(req);
+    const cfg = leerConfig();
+    const srv = cfg.servidores.find((s) => s.nombre === nombre);
+    if (!srv) return responder(res, 404, { error: 'Servidor no encontrado' });
+    const nuevosPuertos = puertos.map(Number).filter((p) => catalogo[p] && !srv.puertos.includes(p));
+    srv.puertos = [...srv.puertos, ...nuevosPuertos].sort((a, b) => a - b);
+    const nuevosServicios = srv.gateway ? servicios.filter((sv) => typeof sv === 'string' && !srv.gateway.servicios.includes(sv)) : [];
+    if (nuevosServicios.length) srv.gateway.servicios.push(...nuevosServicios);
+    descubrimiento.guardarConfig(cfg);
+    config = cfg;
+    registrarEvento(`[${nombre}] se vigilan además: ${[...nuevosPuertos.map((p) => `:${p}`), ...nuevosServicios.map((sv) => `/${sv}`)].join(', ')}`);
+    await revisarServidor(srv);
+    return responder(res, 200, { servidor: resumenServidor(srv) });
+  }
+
   // DELETE /api/servidores?nombre=maipu -> eliminar
   if (req.method === 'DELETE' && url.pathname === '/api/servidores') {
     const nombre = url.searchParams.get('nombre');
@@ -557,14 +791,26 @@ const servidor = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/revisar' && req.method === 'POST') {
       await revisarTodo();
+      programarSeguimiento();
       return enviarJson(res, construirEstado());
     }
 
     if (url.pathname === '/api/analitica') {
       const horas = Math.min(Math.max(Number(url.searchParams.get('horas')) || 24, 1), 24 * 90);
       const filtro = url.searchParams.get('servidor') || null;
+      const datos = analitica.calcular(await ciclosDe(horas), { horas, servidor: filtro }, nombreApi);
+      // Incidentes agrupados (colección "incidentes", con hora exacta). Si todavía no hay
+      // ninguno guardado, se mantienen los calculados desde las revisiones de cada 15 min.
+      const guardados = await almacen.leerIncidentes(Date.now() - horas * 3600e3, { servidor: filtro }).catch(() => null);
+      if (guardados && (guardados.length || !datos.incidentes.length)) {
+        datos.incidentes = guardados.map((i) => ({
+          inicio: i.inicio, fin: i.fin, servidor: i.servidor, api: i.titulo, tipo: i.tipo, alcance: i.alcance,
+          apis: i.apis, nivel: i.nivel, activo: i.estado === 'activo', duracionMs: (i.fin ?? Date.now()) - i.inicio,
+        }));
+        datos.kpis.incidentes = guardados.filter((i) => i.nivel === 'error').length;
+      }
       return enviarJson(res, {
-        ...analitica.calcular(await ciclosDe(horas), { horas, servidor: filtro }, nombreApi),
+        ...datos,
         ahora: resumenActual(filtro),
         servidores: config.servidores.map((s) => s.nombre),
         intervaloSegundos: config.intervaloSegundos,
@@ -615,6 +861,7 @@ async function conectarMongo() {
   if (!mongoUri) return console.error('Falta "mongoUri" en servidores.json: el historial no se guardará.');
   try {
     await almacen.conectar({ mongoUri, mongoDb: config.mongoDb, retencionDias: config.retencionDias || 30 });
+    await incidentes.cargar();
     console.log(`Historial en MongoDB: ${mongoUri.replace(/\/\/[^@/]*@/, '//***@')} base "${config.mongoDb || 'monitorAPIs'}"`);
   } catch (e) {
     console.error(`No se pudo conectar a MongoDB (${e.message}). Se reintenta en la próxima revisión.`);
@@ -631,6 +878,8 @@ servidor.listen(puertoDashboard, () => {
   if (!almacen.conectado()) await conectarMongo();
   await revisarTodo();
   proximaRevision = Date.now() + config.intervaloSegundos * 1000;
+  programarSeguimiento();
+  revisarCertificados().catch((e) => console.error('Error revisando certificados:', e.message));
   generarReporteDeAyer().catch((e) => console.error('Error generando resumen diario:', e.message));
   setTimeout(ciclo, config.intervaloSegundos * 1000);
 })();

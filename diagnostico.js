@@ -137,6 +137,16 @@ function lenta(ms, ctx) {
     sugerencia: `Si se repite, revisa CPU y memoria del servidor ("pm2 monit") y los tiempos de MongoDB.` };
 }
 
+// El puerto atiende, pero no entrega una sesión Socket.IO: hay otro servicio en ese
+// puerto o el WebSocket está mal configurado. Los clientes (visores, UAC) no podrán conectarse.
+function noSocketIO(codigo, cuerpo, ctx) {
+  const msg = mensajeDe(cuerpo);
+  return { tipo: 'NO_SOCKETIO', tecnico: `GET ${ctx.host}:${ctx.puerto}/socket.io/?EIO=4&transport=polling → HTTP ${codigo}${msg ? ` · "${msg}"` : ''}`,
+    titulo: 'Responde, pero no como Socket.IO',
+    causa: `El puerto ${ctx.puerto} contesta HTTP ${codigo} en vez de abrir una sesión de ${ctx.nombre}: en ese puerto corre otro servicio, o el WebSocket arrancó con una configuración distinta.`,
+    sugerencia: `En ${ctx.host}, revisa qué proceso usa el puerto ("sudo ss -tlnp | grep ${ctx.puerto}") y que sea ${ctx.nombre}.` };
+}
+
 // 429: la API (o el gateway) está limitando peticiones. Responde, así que es aviso, no caída.
 function limitada(codigo, cuerpo, ctx) {
   const msg = mensajeDe(cuerpo);
@@ -161,4 +171,4 @@ function servicioRetirado(ctx) {
     sugerencia: `Si fue a propósito, usa "Re-detectar" en la pestaña Servidores para actualizar la lista.` };
 }
 
-module.exports = { deRed, deHttp, lenta, limitada, loginFallido, servicioRetirado };
+module.exports = { deRed, deHttp, lenta, limitada, noSocketIO, loginFallido, servicioRetirado };

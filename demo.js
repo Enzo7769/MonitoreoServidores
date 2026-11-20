@@ -29,7 +29,7 @@ function resultadoPuerto(puerto) {
     case 3021: return falla('error', diagnostico.deHttp(500, '{"message":"MongoServerSelectionError: connect ECONNREFUSED 127.0.0.1:27017"}', ctx), { ms: 48, codigo: 500 });
     case 3023: return falla('aviso', diagnostico.lenta(2840, ctx), { ms: 2840, codigo: 200 });
     case 3010: return ok(31, 'Responde (health pide token)');
-    case 3027: return ok(22, 'WebSocket acepta conexiones');
+    case 3027: return ok(22, 'Socket.IO acepta sesiones');
     default: return ok(18 + (puerto % 7) * 4);
   }
 }
@@ -47,4 +47,14 @@ function resultadoServicio(servicio) {
   }
 }
 
-module.exports = { SERVIDOR, resultadoPuerto, resultadoServicio };
+// Certificado simulado que vence en 9 días, para ver el aviso de SSL.
+function certificado() {
+  const venceEl = Date.now() + 9 * 86400e3 + 3600e3;
+  return {
+    revisado: Date.now(), nivel: 'aviso', venceEl, dias: 9, emisor: 'GlobalSign nv-sa', distintos: 1,
+    puertos: SERVIDOR.puertos.map((puerto) => ({ puerto, venceEl, dias: 9, valido: true, problema: null })),
+    vencidos: [], porVencer: [...SERVIDOR.puertos], invalidos: [],
+  };
+}
+
+module.exports = { SERVIDOR, resultadoPuerto, resultadoServicio, certificado };

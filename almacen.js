@@ -15,6 +15,7 @@ const RUTA_PENDIENTES = path.join(__dirname, 'logs', 'pendientes.jsonl');
 
 let cliente = null;
 let coleccion = null;
+let incidentes = null; // colección "incidentes": uno por falla agrupada, con inicio y fin exactos
 
 async function conectar({ mongoUri, mongoDb = 'monitorAPIs', retencionDias = 30 }) {
   cliente = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 10000 });
@@ -30,7 +31,42 @@ async function conectar({ mongoUri, mongoDb = 'monitorAPIs', retencionDias = 30 
   } else if (ttl.expireAfterSeconds !== segundos) {
     await cliente.db(mongoDb).command({ collMod: 'revisiones', index: { name: 't_ttl', expireAfterSeconds: segundos } });
   }
+
+  incidentes = cliente.db(mongoDb).collection('incidentes');
+  await incidentes.createIndex({ inicio: -1 });
+  await incidentes.createIndex({ estado: 1 });
+  // Los incidentes resueltos se guardan un año (los activos no tienen "fin" y no expiran).
+  await incidentes.createIndex({ fin: 1 }, { name: 'fin_ttl', expireAfterSeconds: 365 * 86400 });
+
   await subirPendientes();
+}
+
+// ---- Incidentes ----------------------------------------------------------------
+
+const aDocumento = (inc) => {
+  const { id, persistir, ...resto } = inc;
+  return { ...resto, inicio: new Date(inc.inicio), fin: inc.fin ? new Date(inc.fin) : null, actualizado: new Date(inc.actualizado) };
+};
+const desdeDocumento = (doc) => ({
+  ...doc, id: doc._id, inicio: doc.inicio.getTime(), fin: doc.fin ? doc.fin.getTime() : null, actualizado: doc.actualizado?.getTime(),
+});
+
+async function guardarIncidente(inc) {
+  if (!incidentes) return;
+  await incidentes.updateOne({ _id: inc.id }, { $set: aDocumento(inc) }, { upsert: true });
+}
+
+async function incidentesActivos() {
+  if (!incidentes) return [];
+  return (await incidentes.find({ estado: 'activo' }).toArray()).map(desdeDocumento);
+}
+
+// Incidentes que se cruzan con el periodo [desde, ahora]: empezaron después o siguen/terminaron después.
+async function leerIncidentes(desde, { servidor } = {}) {
+  if (!incidentes) return null;
+  const filtro = { $or: [{ inicio: { $gte: new Date(desde) } }, { fin: { $gte: new Date(desde) } }, { estado: 'activo' }] };
+  if (servidor) filtro.servidor = servidor;
+  return (await incidentes.find(filtro).sort({ inicio: -1 }).limit(500).toArray()).map(desdeDocumento);
 }
 
 async function subirPendientes() {
@@ -71,4 +107,6 @@ async function cerrar() {
   if (cliente) await cliente.close();
 }
 
-module.exports = { conectar, guardarCiclo, leerCiclos, conectado, cerrar };
+module.exports = {
+  conectar, guardarCiclo, leerCiclos, conectado, cerrar, guardarIncidente, incidentesActivos, leerIncidentes,
+};

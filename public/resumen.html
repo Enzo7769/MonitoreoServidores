@@ -66,6 +66,10 @@
   .badge::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
   .badge.ok { color: var(--good-ink); } .badge.aviso { color: var(--warning-ink); } .badge.error { color: var(--critical-ink); }
   .cero { color: var(--muted); }
+  .badge.mantencion { color: #a9bbf0; }
+  tr.mantencion td { background: rgba(79, 107, 179, .18); }
+  .nota-panel { margin: 0 0 12px; color: var(--ink-2); font-size: 13px; }
+  b.activo { color: var(--warning-ink); }
   .etiqueta-demo { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: #fff; background: #7c3aed; padding: 1px 6px; border-radius: 4px; vertical-align: 2px; }
   table.problemas td { vertical-align: top; }
   a.enlace { color: var(--ink); text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
@@ -101,6 +105,11 @@
 
   <section class="tiles" id="tiles"></section>
 
+  <section class="panel">
+    <h3>Incidentes activos</h3>
+    <div id="tablaIncidentes"></div>
+  </section>
+
   <div class="paneles">
     <section class="panel">
       <h3>Información del monitoreo</h3>
@@ -120,6 +129,12 @@
   <section class="panel">
     <h3>APIs con problemas ahora</h3>
     <div id="tablaProblemas"></div>
+  </section>
+
+  <section class="panel" id="panelDeriva" hidden>
+    <h3>Diferencias entre servidores</h3>
+    <p class="nota-panel">APIs que tiene la mayoría de los servidores del mismo tipo, pero no este. Como no se detectaron ahí, <b>no se están vigilando</b>: puede que estén detenidas. Se pueden sumar al monitoreo desde la pestaña <a class="enlace" href="/servidores">Servidores</a>.</p>
+    <div id="tablaDeriva"></div>
   </section>
 </div>
 
@@ -148,6 +163,7 @@ const ICONO = {
   reloj: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   base: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>',
   grafico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>',
+  candado: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
 };
 
 let estado = null, analitica = null;
@@ -160,14 +176,30 @@ function clasificar(srv) {
   const caidas = apis.filter((a) => a.nivel === 'error').length;
   const tiempos = apis.map((a) => a.ms).filter((v) => v != null);
   let nivel = 'ok', texto = 'Operativo';
-  if (apis.length === 0 || caidas === apis.length) { nivel = 'error'; texto = 'Caído'; }
+  if (srv.mantencion) { nivel = 'mantencion'; texto = `🔧 Mantención hasta ${hora(srv.mantencion.hasta)}`; }
+  else if (apis.length === 0 || caidas === apis.length) { nivel = 'error'; texto = 'Caído'; }
   else if (caidas > 0) { nivel = 'error'; texto = `${caidas} ${caidas === 1 ? 'API caída' : 'APIs caídas'}`; }
-  else if (avisos > 0) { nivel = 'aviso'; texto = 'Con lentitud'; }
+  else if (avisos > 0) { nivel = 'aviso'; texto = `${avisos} con aviso`; }
   return {
     ...srv, total: apis.length, ok, avisos, caidas, nivel, texto,
-    caido: apis.length === 0 || caidas === apis.length,
+    caido: !srv.mantencion && (apis.length === 0 || caidas === apis.length),
     msPromedio: tiempos.length ? tiempos.reduce((x, y) => x + y, 0) / tiempos.length : null,
   };
+}
+
+const hora = (t) => new Date(t).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+const duracion = (ms) => {
+  const m = Math.round(ms / 60000);
+  return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`;
+};
+const ALCANCE = { servidor: 'Servidor completo', mongo: 'MongoDB', gateway: 'Gateway', api: 'API', ssl: 'Certificado SSL' };
+
+function textoSsl(c) {
+  if (!c || c.dias == null) return '<span class="cero">—</span>';
+  if (c.dias < 0) return '<span class="badge error">Vencido</span>';
+  const clase = c.nivel === 'ok' ? 'ok' : c.nivel;
+  const extra = c.invalidos?.length ? ` · ${c.invalidos.length} inválido${c.invalidos.length === 1 ? '' : 's'}` : '';
+  return `<span class="badge ${clase}" title="Vence el ${new Date(c.venceEl).toLocaleDateString('es-CL')} · ${esc(c.emisor || '')}">${c.dias} días${extra}</span>`;
 }
 
 function tile(clase, etiqueta, numero, pie, icono) {
@@ -175,7 +207,10 @@ function tile(clase, etiqueta, numero, pie, icono) {
 }
 
 function pintar() {
-  const servidores = estado.servidores.map(clasificar);
+  const todos = estado.servidores.map(clasificar);
+  // Los servidores en mantención se muestran, pero no cuentan como problemas.
+  const servidores = todos.filter((s) => s.nivel !== 'mantencion');
+  const enMantencion = todos.length - servidores.length;
   const total = servidores.length;
   const caidos = servidores.filter((s) => s.caido).length;
   const conProblemas = servidores.filter((s) => !s.caido && s.nivel !== 'ok').length;
@@ -188,12 +223,12 @@ function pintar() {
     ? new Date(estado.actualizado).toLocaleString('es-CL', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/^./, (c) => c.toUpperCase())
     : 'Primera revisión en curso…';
 
-  const general = caidos || apisCaidas ? ['error', 'Hay servicios caídos'] : conProblemas ? ['aviso', 'Hay servicios con lentitud'] : ['ok', 'Todos los servicios operativos'];
+  const general = caidos || apisCaidas ? ['error', 'Hay servicios caídos'] : conProblemas ? ['aviso', 'Hay servicios con avisos'] : ['ok', 'Todos los servicios operativos'];
   $('estadoGeneral').innerHTML = `<span class="estado-general ${general[0]}">${general[1]}</span>`;
 
   $('tiles').innerHTML =
     tile(operativos === total ? 'ok' : 'aviso', 'Servidores operativos', `${operativos}<small>/ ${total}</small>`,
-      operativos === total ? 'Todos sin problemas' : `${total - operativos} requieren atención`, ICONO.servidor) +
+      [operativos === total ? 'Todos sin problemas' : `${total - operativos} requieren atención`, enMantencion ? `🔧 ${enMantencion} en mantención` : ''].filter(Boolean).join(' · '), ICONO.servidor) +
     tile(conProblemas ? 'aviso' : 'ok', 'Servidores con problemas', conProblemas,
       conProblemas ? 'Alguna API caída o lenta' : 'Ninguno', ICONO.aviso) +
     tile(caidos ? 'error' : 'ok', 'Servidores caídos', caidos,
@@ -209,6 +244,9 @@ function pintar() {
     [ICONO.reloj, 'Frecuencia:', `cada ${intervalo} minutos`],
     [ICONO.reloj, 'Última revisión:', estado.actualizado ? `${fmtHora(estado.actualizado)} (${hace(estado.actualizado)})` : '—'],
     [ICONO.reloj, 'Próxima revisión:', estado.proximaRevision ? `en <span id="cuenta">${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</span>` : '—'],
+    [ICONO.reloj, 'Seguimiento de caídas:', estado.seguimiento?.activo
+      ? `<b class="activo">activo</b> · se revisan cada ${Math.round(estado.seguimiento.cadaSegundos)} s`
+      : `en espera (se activa con una caída, cada ${Math.round(estado.seguimiento?.cadaSegundos || 60)} s)`],
     [ICONO.base, 'Historial:', estado.mongo ? 'MongoDB conectado' : '⚠ sin conexión a MongoDB'],
   ].map(([i, k, v]) => `<li>${i}<b>${k}</b><span>${v}</span></li>`).join('');
 
@@ -216,29 +254,55 @@ function pintar() {
   const lenta = todas.sort((x, y) => y.ms - x.ms)[0];
   const promedio = todas.length ? todas.reduce((n, a) => n + a.ms, 0) / todas.length : null;
   const k = analitica?.kpis;
+  const conSsl = todos.filter((sv) => sv.ssl?.dias != null).sort((a, b) => a.ssl.dias - b.ssl.dias);
+  const sslProximo = conSsl[0];
   $('infoTiempos').innerHTML = [
     [ICONO.reloj, 'Tiempo de respuesta promedio:', fmtMs(promedio)],
     [ICONO.reloj, 'Respuesta más lenta:', lenta ? `${fmtMs(lenta.ms)} · ${esc(cap(lenta.servidor))} / ${esc(lenta.nombre)}` : '—'],
+    [ICONO.candado, 'Certificado SSL más próximo a vencer:', sslProximo ? `${textoSsl(sslProximo.ssl)} ${esc(cap(sslProximo.nombre))}` : 'revisando…'],
     [ICONO.grafico, 'Disponibilidad últimas 24 h:', k ? fmtPct(k.disponibilidad) : '—'],
     [ICONO.grafico, 'Incidentes últimas 24 h:', k ? k.incidentes : '—'],
     [ICONO.grafico, 'Revisiones guardadas (24 h):', analitica ? analitica.ciclos : '—'],
   ].map(([i, k, v]) => `<li>${i}<b>${k}</b><span>${v}</span></li>`).join('');
 
+  // Incidentes activos, ya agrupados por causa raíz en el monitor.
+  const incs = estado.incidentes || [];
+  $('tablaIncidentes').innerHTML = incs.length ? `<div class="tabla-scroll" style="margin:0"><table class="problemas">
+    <thead><tr><th class="izq">Servidor</th><th class="izq">Incidente</th><th class="izq">Causa y qué revisar</th><th>Desde</th></tr></thead>
+    <tbody>${incs.map((i) => `
+      <tr class="${i.nivel}">
+        <td class="izq"><a class="enlace" href="/?abrir=${encodeURIComponent(i.servidor)}"><b>${esc(cap(i.servidor))}</b></a><span class="host">${ALCANCE[i.alcance] || ''}</span></td>
+        <td class="izq"><span class="badge ${i.nivel}">${esc(i.titulo)}</span><span class="host">${esc(i.tipo)}</span>
+          ${i.apis.length > 1 ? `<span class="host">${i.apis.length} APIs: ${esc(i.apis.slice(0, 6).join(', '))}${i.apis.length > 6 ? '…' : ''}</span>` : ''}</td>
+        <td class="izq diag">${esc(i.causa)}${i.sugerencia ? `<span class="sug">→ ${esc(i.sugerencia)}</span>` : ''}</td>
+        <td>${hace(i.inicio)}<span class="host">${duracion(Date.now() - i.inicio)}</span></td>
+      </tr>`).join('')}</tbody></table></div>`
+    : '<div class="sin-problemas">✓ Sin incidentes activos</div>';
+
   // Tabla por servidor: primero los caídos, luego con problemas, luego alfabético.
-  const orden = { error: 0, aviso: 1, ok: 2 };
-  const filas = [...servidores].sort((a, b) => (b.caido - a.caido) || orden[a.nivel] - orden[b.nivel] || a.nombre.localeCompare(b.nombre));
+  const orden = { error: 0, aviso: 1, mantencion: 2, ok: 3 };
+  const filas = [...todos].sort((a, b) => (b.caido - a.caido) || orden[a.nivel] - orden[b.nivel] || a.nombre.localeCompare(b.nombre));
   const num = (v, clase = '') => v === 0 ? '<span class="cero">0</span>' : `<span class="${clase}">${v}</span>`;
   $('tablaServidores').innerHTML = `
-    <thead><tr><th class="izq">Servidor</th><th>APIs</th><th>OK</th><th>Lentas</th><th>Caídas</th><th>Resp. promedio</th><th>Estado</th></tr></thead>
+    <thead><tr><th class="izq">Servidor</th><th>APIs</th><th>OK</th><th>Avisos</th><th>Caídas</th><th>Resp. promedio</th><th>SSL</th><th>Estado</th></tr></thead>
     <tbody>${filas.map((sv) => `
       <tr class="${sv.nivel === 'ok' ? '' : sv.nivel}">
         <td class="izq">${esc(cap(sv.nombre))}${sv.demo ? ' <span class="etiqueta-demo">DEMO</span>' : ''}<span class="host">${esc(sv.host)}</span></td>
         <td>${sv.total}</td><td>${sv.ok}</td><td>${num(sv.avisos)}</td><td>${num(sv.caidas)}</td>
         <td>${fmtMs(sv.msPromedio)}</td>
+        <td>${textoSsl(sv.ssl)}</td>
         <td><span class="badge ${sv.nivel}">${sv.texto}</span></td>
       </tr>`).join('')}</tbody>
-    <tfoot><tr><td class="izq">Total</td><td>${apisTotal}</td><td>${apisTotal - apisCaidas - apisLentas}</td><td>${apisLentas}</td><td>${apisCaidas}</td><td>${fmtMs(promedio)}</td>
+    <tfoot><tr><td class="izq">Total</td><td>${apisTotal}</td><td>${apisTotal - apisCaidas - apisLentas}</td><td>${apisLentas}</td><td>${apisCaidas}</td><td>${fmtMs(promedio)}</td><td></td>
       <td><span class="badge ${general[0]}">${operativos}/${total} operativos</span></td></tr></tfoot>`;
+
+  // Diferencias entre servidores (APIs que no se están vigilando en alguno).
+  const conDeriva = todos.filter((sv) => sv.deriva?.faltantes?.length);
+  $('panelDeriva').hidden = !conDeriva.length;
+  $('tablaDeriva').innerHTML = conDeriva.length ? `<div class="tabla-scroll" style="margin:0"><table>
+    <thead><tr><th class="izq">Servidor</th><th class="izq">No se vigila (la tienen los demás)</th></tr></thead>
+    <tbody>${conDeriva.map((sv) => `<tr class="aviso"><td class="izq">${esc(cap(sv.nombre))}<span class="host">${esc(sv.host)}</span></td>
+      <td class="izq">${sv.deriva.faltantes.map((f) => `<b>${esc(f.nombre)}</b> ${f.puerto ? ':' + f.puerto : '/' + esc(f.servicio)} <span class="cero">(${f.cuantos} de ${f.de} servidores)</span>`).join('<br>')}</td></tr>`).join('')}</tbody></table></div>` : '';
 
   const problemas = servidores.flatMap((sv) => sv.apis.filter((a) => a.nivel === 'error' || a.nivel === 'aviso').map((a) => ({ ...a, servidor: sv.nombre })))
     .sort((a, b) => (a.nivel === 'error' ? 0 : 1) - (b.nivel === 'error' ? 0 : 1) || a.servidor.localeCompare(b.servidor));
@@ -258,10 +322,10 @@ function pintar() {
 
 function pintarMeta() {
   if (!estado) return;
-  const s = Math.max(0, Math.round(((estado.proximaRevision || 0) - Date.now()) / 1000));
-  const reloj = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  $('meta').textContent = estado.revisando ? 'Revisión en curso…' : estado.proximaRevision ? `Próxima revisión en ${reloj}` : '';
-  if ($('cuenta')) $('cuenta').textContent = reloj;
+  const reloj = (t) => { const s = Math.max(0, Math.round(((t || 0) - Date.now()) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+  const seg = estado.seguimiento?.activo && estado.seguimiento.proxima ? ` · ⟳ caídas en ${reloj(estado.seguimiento.proxima)}` : '';
+  $('meta').textContent = estado.revisando ? 'Revisión en curso…' : estado.proximaRevision ? `Próxima revisión en ${reloj(estado.proximaRevision)}${seg}` : '';
+  if ($('cuenta')) $('cuenta').textContent = reloj(estado.proximaRevision);
 }
 
 // Como las otras vistas: se piden datos justo después de cada revisión.
@@ -279,8 +343,9 @@ async function cargar() {
   } catch {
     $('meta').textContent = '⚠ No se pudo conectar con el monitor';
   }
-  const espera = estado?.proximaRevision && !estado.revisando ? estado.proximaRevision - Date.now() + 15000 : 15000;
-  temporizador = setTimeout(cargar, Math.max(15000, espera));
+  const proximas = [estado?.proximaRevision, estado?.seguimiento?.activo && estado.seguimiento.proxima].filter(Boolean);
+  const espera = proximas.length && !estado.revisando ? Math.min(...proximas) - Date.now() + 8000 : 15000;
+  temporizador = setTimeout(cargar, Math.max(8000, espera));
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) cargar(); });
 

@@ -62,6 +62,20 @@ Los cambios en `servidores.json` y `credenciales.json` se toman en la siguiente 
 | `retencionDias` | Días que se guardan las revisiones en MongoDB |
 | `zonaHoraria` | Zona para cortar los días del resumen diario |
 | `mongoUri` / `mongoDb` | Conexión a MongoDB (la variable `MONGO_URI` tiene prioridad) |
+| `confirmacionEsperasMs` | Reintentos antes de dar una API por caída (por defecto `[3000, 8000]`: a los 3 s y a los 8 s) |
+| `intervaloFallaSegundos` | Mientras haya caídas, cada cuánto se revisan solo esas (por defecto 60) |
+| `sslAvisoDias` / `sslRevisarHoras` | Avisar si un certificado vence en menos de N días (30) / cada cuánto revisarlos (6 h) |
+| `demo` | Muestra el servidor simulado "Demo" (no se guarda en MongoDB) |
+
+## Cómo decide (fase 1)
+
+- **Confirmación:** una API solo se da por caída si falla también en los reintentos; si se recupera, queda como "falla momentánea".
+- **Seguimiento:** con alguna caída, se revisa solo eso cada minuto hasta que vuelva. La colección `revisiones` sigue cada 15 min (para no distorsionar la disponibilidad); la hora exacta queda en `incidentes`.
+- **Incidentes agrupados** (colección `incidentes`): un servidor sin respuesta, MongoDB caído en varias APIs o el gateway caído cuentan como **un** incidente.
+- **Socket.IO:** los WebSockets se validan pidiendo una sesión real (`/socket.io/?EIO=4&transport=polling`), no solo con el puerto abierto.
+- **SSL:** se revisa el certificado de cada puerto; avisa si vence pronto, está vencido o no corresponde al dominio.
+- **Diferencias entre servidores:** si casi todos tienen una API y uno no, se avisa (y se puede vigilar desde la pestaña Servidores).
+- **Mantención:** desde la pestaña Servidores; mientras dura, las fallas no generan incidentes ni cuentan en la disponibilidad.
 
 ## Credenciales (`credenciales.json`, ver `credenciales.ejemplo.json`)
 
