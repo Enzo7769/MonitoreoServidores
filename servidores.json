@@ -1,0 +1,128 @@
+{
+  "intervaloSegundos": 900,
+  "timeoutMs": 5000,
+  "lentoMs": 2000,
+  "puertoDashboard": 8090,
+  "retencionDias": 30,
+  "zonaHoraria": "America/Santiago",
+  "mongoUri": "mongodb://test.dts.lat:27017/?directConnection=true",
+  "mongoDb": "monitorAPIs",
+  "servidores": [
+    {
+      "nombre": "quintanormal",
+      "host": "quintanormal.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "cormupa",
+      "host": "cormupa.dts.lat",
+      "puertos": [3002, 3010, 3022, 3027, 3028, 3029, 3085],
+      "gateway": {
+        "puerto": 3022,
+        "servicios": ["login", "oficinas", "uacs", "tramites", "estadisticas", "sectores", "promociones", "agendas", "tramite", "paises", "ejecutivos", "visores", "udts", "estadosEjecutivos", "asignacionMedico", "tickets", "monitoreo", "fichaClinica", "historialUac"]
+      }
+    },
+    {
+      "nombre": "fresia",
+      "host": "fresia.dts.lat",
+      "puertos": [3002, 3010, 3022, 3027, 3028, 3029, 3085],
+      "gateway": {
+        "puerto": 3022,
+        "servicios": ["login", "oficinas", "uacs", "tramites", "estadisticas", "sectores", "promociones", "agendas", "tramite", "paises", "ejecutivos", "visores", "udts", "estadosEjecutivos", "asignacionMedico", "tickets", "monitoreo", "fichaClinica", "historialUac", "status"]
+      }
+    },
+    {
+      "nombre": "sanantonio",
+      "host": "sanantonio.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "torax",
+      "host": "torax.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "sanjoaquin",
+      "host": "sanjoaquin.dts.lat",
+      "puertos": [3002, 3010, 3022, 3027, 3028, 3029, 3085],
+      "gateway": {
+        "puerto": 3022,
+        "servicios": ["login", "oficinas", "uacs", "tramites", "estadisticas", "sectores", "promociones", "agendas", "tramite", "paises", "ejecutivos", "visores", "udts", "estadosEjecutivos", "asignacionMedico", "tickets", "monitoreo", "fichaClinica", "historialUac", "status"]
+      }
+    },
+    {
+      "nombre": "loprado",
+      "host": "loprado.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "conchali",
+      "host": "conchali.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "suralis",
+      "host": "suralis.dts.lat",
+      "puertos": [3002, 3010, 3022, 3027, 3028, 3029, 3085],
+      "gateway": {
+        "puerto": 3022,
+        "servicios": ["login", "oficinas", "uacs", "tramites", "estadisticas", "sectores", "promociones", "agendas", "tramite", "paises", "ejecutivos", "visores", "udts", "estadosEjecutivos", "asignacionMedico", "tickets", "monitoreo", "fichaClinica", "historialUac", "status"]
+      }
+    },
+    {
+      "nombre": "hualane",
+      "host": "hualane.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "sanmanuel",
+      "host": "sanmanuel.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "curacavi",
+      "host": "curacavi.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "porvenir",
+      "host": "porvenir.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "puertomontt",
+      "host": "puertomontt.dts.lat",
+      "puertos": [3002, 3010, 3022, 3027, 3028, 3029, 3085],
+      "gateway": {
+        "puerto": 3022,
+        "servicios": ["login", "oficinas", "uacs", "tramites", "estadisticas", "sectores", "promociones", "agendas", "tramite", "paises", "ejecutivos", "visores", "udts", "estadosEjecutivos", "asignacionMedico", "tickets", "monitoreo", "fichaClinica", "historialUac"]
+      }
+    },
+    {
+      "nombre": "purranque",
+      "host": "purranque.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "vitasalud",
+      "host": "vitasalud.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "lebu",
+      "host": "lebu.dts.lat",
+      "puertos": [3000, 3001, 3002, 3003, 3004, 3005, 3008, 3009, 3010, 3011, 3014, 3015, 3016, 3017, 3019, 3020, 3021, 3022, 3023, 3024, 3025, 3026, 3027, 3028, 3029, 3031, 3085]
+    },
+    {
+      "nombre": "test",
+      "host": "test.dts.lat",
+      "tipo": "gateway",
+      "puertos": [3002, 3010, 3022, 3027, 3028, 3029, 3085],
+      "gateway": {
+        "puerto": 3022,
+        "servicios": ["login", "oficinas", "uacs", "tramites", "estadisticas", "sectores", "promociones", "agendas", "tramite", "paises", "ejecutivos", "visores", "udts", "estadosEjecutivos", "asignacionMedico", "tickets", "monitoreo", "fichaClinica", "historialUac", "status"]
+      }
+    }
+  ],
+  "demo": true
+}

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Servidores monitoreados</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
+    --ok: #16a34a; --ok-bg: #dcfce7; --aviso: #b45309; --aviso-bg: #fef3c7;
+    --error: #dc2626; --error-bg: #fee2e2; --accent: #2563eb; --accent-bg: #eff6ff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --text: #e5e7eb; --muted: #9ca3af; --line: #2a2f3a;
+      --ok: #22c55e; --ok-bg: #12301f; --aviso: #f59e0b; --aviso-bg: #3a2a0a;
+      --error: #f87171; --error-bg: #3b1414; --accent: #60a5fa; --accent-bg: #172235;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); padding: 0 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 12px 0; }
+  nav { display: flex; gap: 4px; align-self: stretch; overflow-x: auto; }
+  nav a { display: flex; align-items: center; padding: 0 14px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
+  nav a.activa { color: var(--accent); border-bottom-color: var(--accent); }
+
+  main { max-width: 1200px; margin: 0 auto; padding: 20px; display: grid; gap: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .sub { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+
+  .tipos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .tipo { position: relative; border: 2px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; display: block; }
+  .tipo input { position: absolute; opacity: 0; }
+  .tipo b { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .tipo b .puerto { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-bg); padding: 2px 8px; border-radius: 999px; }
+  .tipo span { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .tipo:has(input:checked) { border-color: var(--accent); background: var(--accent-bg); }
+  .tipo:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .fila-form { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+  .campo { flex: 1; min-width: 220px; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 0 12px; }
+  .campo span { color: var(--muted); }
+  .campo input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; padding: 10px 6px; outline: none; }
+  .campo:focus-within { border-color: var(--accent); }
+  button { border: 0; border-radius: 8px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .primario { background: var(--accent); color: #fff; }
+  .secundario { background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
+  .peligro { background: transparent; color: var(--error); border: 1px solid var(--error); padding: 6px 10px; font-size: 13px; }
+  .peligro.lleno { background: var(--error); color: #fff; padding: 10px 16px; font-size: 14px; }
+  .vista-previa { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 19px; }
+  .vista-previa b { color: var(--text); }
+
+  .mensaje { margin-top: 14px; padding: 12px 14px; border-radius: 8px; font-size: 13px; display: none; }
+  .mensaje.ok { display: block; background: var(--ok-bg); color: var(--ok); }
+  .mensaje.aviso { display: block; background: var(--aviso-bg); color: var(--aviso); }
+  .mensaje.error { display: block; background: var(--error-bg); color: var(--error); }
+  .mensaje.cargando { display: block; background: var(--accent-bg); color: var(--accent); }
+
+  .tabla { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td .host { color: var(--muted); font-size: 12px; display: block; }
+  .etiqueta-demo { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: #fff; background: #7c3aed; padding: 1px 6px; border-radius: 4px; vertical-align: 2px; }
+  .etiqueta-tipo { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); white-space: nowrap; }
+  .estado { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .estado.ok { color: var(--ok); } .estado.aviso { color: var(--aviso); } .estado.error { color: var(--error); } .estado.pend { color: var(--muted); }
+  .acciones { display: flex; gap: 6px; justify-content: flex-end; }
+
+  dialog { border: 0; border-radius: 12px; padding: 0; max-width: 440px; width: calc(100% - 32px); background: var(--card); color: var(--text); box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialogo { padding: 22px 22px 18px; }
+  .dialogo h3 { margin: 0 0 8px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+  .dialogo h3 svg { color: var(--error); flex: none; }
+  .dialogo p { margin: 0 0 6px; color: var(--muted); }
+  .dialogo .botones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+  @media (max-width: 700px) { .tipos { grid-template-columns: 1fr; } main { padding: 16px; } header { padding: 0 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor de APIs</h1>
+  <nav><a href="/resumen">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/servidores" class="activa">Servidores</a></nav>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Agregar servidor</h2>
+    <p class="sub">Elige cómo se llega a sus APIs y escribe solo el dominio. El monitor detecta solo qué APIs tiene y empieza a vigilarlas.</p>
+    <form id="formAgregar">
+      <div class="tipos" role="radiogroup" aria-label="Tipo de servidor">
+        <label class="tipo"><input type="radio" name="tipo" value="directo" checked>
+          <b>Directo <span class="puerto">3000–3033</span></b>
+          <span>Las APIs están expuestas cada una en su puerto.</span></label>
+        <label class="tipo"><input type="radio" name="tipo" value="gateway">
+          <b>Con gateway <span class="puerto">:3022</span></b>
+          <span>Las APIs solo se alcanzan a través del gateway en el 3022.</span></label>
+        <label class="tipo"><input type="radio" name="tipo" value="proxy">
+          <b>Con proxy <span class="puerto">:3023</span></b>
+          <span>Las APIs solo se alcanzan a través del proxy en el 3023.</span></label>
+      </div>
+      <div class="fila-form">
+        <label class="campo"><span>https://</span><input id="host" placeholder="maipu.dts.lat" autocomplete="off" spellcheck="false" required></label>
+        <button class="primario" id="btnAgregar">Agregar y detectar</button>
+      </div>
+      <div class="vista-previa" id="vistaPrevia"></div>
+    </form>
+    <div class="mensaje" id="mensaje"></div>
+  </section>
+
+  <section class="card">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px">
+      <h2 style="margin:0">Servidores monitoreados <span id="cantidad" style="color:var(--muted);font-weight:400"></span></h2>
+      <button class="secundario" id="btnDemo" style="margin-left:auto" title="Un servidor simulado con fallas, para ver cómo se muestran los errores. No se guarda en MongoDB.">Mostrar servidor de demostración</button>
+    </div>
+    <p class="sub">"Re-detectar" vuelve a buscar sus APIs (por ejemplo, si se instaló una nueva). Eliminar deja de vigilarlo; su historial en MongoDB se conserva.</p>
+    <div class="tabla"><table>
+      <thead><tr><th>Servidor</th><th>Tipo</th><th class="num">APIs directas</th><th class="num">Vía gateway/proxy</th><th>Estado actual</th><th></th></tr></thead>
+      <tbody id="lista"><tr><td colspan="6" style="color:var(--muted)">Cargando…</td></tr></tbody>
+    </table></div>
+  </section>
+</main>
+
+<dialog id="confirmar">
+  <form method="dialog" class="dialogo">
+    <h3><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
+      <span id="confTitulo">¿Eliminar servidor?</span></h3>
+    <p id="confTexto"></p>
+    <p>El historial ya guardado en MongoDB se conserva.</p>
+    <div class="botones">
+      <button value="cancelar" class="secundario" style="padding:10px 16px;font-size:14px" autofocus>Cancelar</button>
+      <button value="eliminar" class="peligro lleno">Sí, eliminar</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cap = (s) => String(s ?? '').charAt(0).toUpperCase() + String(s ?? '').slice(1);
+const NOMBRE_TIPO = { directo: 'Directo', gateway: 'Con gateway', proxy: 'Con proxy' };
+
+const normalizarHost = (t) => String(t || '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').split(/[/:?#]/)[0];
+const tipoElegido = () => document.querySelector('input[name="tipo"]:checked').value;
+
+function mensaje(clase, html) { $('mensaje').className = `mensaje ${clase}`; $('mensaje').innerHTML = html; }
+
+function pintarVistaPrevia() {
+  const host = normalizarHost($('host').value);
+  if (!host) { $('vistaPrevia').textContent = ''; return; }
+  const tipo = tipoElegido();
+  const puerto = tipo === 'gateway' ? ' · gateway en :3022' : tipo === 'proxy' ? ' · proxy en :3023' : '';
+  $('vistaPrevia').innerHTML = `Se agregará como <b>${esc(cap(host.split('.')[0]))}</b> (${esc(host)}) · ${NOMBRE_TIPO[tipo]}${puerto}`;
+}
+$('host').addEventListener('input', pintarVistaPrevia);
+document.querySelectorAll('input[name="tipo"]').forEach((r) => r.addEventListener('change', pintarVistaPrevia));
+
+async function api(metodo, ruta, cuerpo) {
+  const r = await fetch(ruta, { method: metodo, headers: cuerpo ? { 'Content-Type': 'application/json' } : {}, body: cuerpo ? JSON.stringify(cuerpo) : undefined });
+  const datos = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(datos.error || `Error ${r.status}`);
+  return datos;
+}
+
+function describir(s) {
+  const partes = [`${s.directas} ${s.directas === 1 ? 'puerto directo' : 'puertos directos'}`];
+  if (s.viaGateway) partes.push(`${s.viaGateway} servicios vía :${s.puertoGateway}`);
+  return partes.join(' + ');
+}
+
+function estadoTexto(s) {
+  if (!s.total) return '<span class="estado pend">Esperando revisión</span>';
+  if (s.caidas === s.total) return '<span class="estado error">Caído</span>';
+  if (s.caidas) return `<span class="estado error">${s.caidas} ${s.caidas === 1 ? 'caída' : 'caídas'}</span>`;
+  if (s.avisos) return `<span class="estado aviso">${s.avisos} ${s.avisos === 1 ? 'lenta' : 'lentas'}</span>`;
+  return `<span class="estado ok">${s.ok}/${s.total} OK</span>`;
+}
+
+let demoActivo = false;
+async function cargarLista() {
+  try {
+    const { servidores, demo } = await api('GET', '/api/servidores');
+    demoActivo = demo;
+    $('btnDemo').textContent = demo ? 'Quitar servidor de demostración' : 'Mostrar servidor de demostración';
+    $('cantidad').textContent = `(${servidores.filter((s) => !s.demo).length}${demo ? ' + demo' : ''})`;
+    $('lista').innerHTML = servidores.sort((a, b) => (b.demo - a.demo) || a.nombre.localeCompare(b.nombre)).map((s) => `
+      <tr>
+        <td><b>${esc(cap(s.nombre))}</b>${s.demo ? ' <span class="etiqueta-demo">DEMO</span>' : ''}<span class="host">${esc(s.host)}${s.demo ? ' · simulado, no se guarda en MongoDB' : ''}</span></td>
+        <td><span class="etiqueta-tipo">${NOMBRE_TIPO[s.tipo]}${s.puertoGateway ? ' :' + s.puertoGateway : ''}</span></td>
+        <td class="num">${s.directas}</td>
+        <td class="num">${s.viaGateway || '—'}</td>
+        <td>${estadoTexto(s)}</td>
+        <td><div class="acciones">
+          ${s.demo ? '<button class="secundario" data-quitar-demo>Quitar demo</button>' : `
+          <button class="secundario" data-redetectar="${esc(s.nombre)}">Re-detectar</button>
+          <button class="peligro" data-eliminar="${esc(s.nombre)}" data-host="${esc(s.host)}">Eliminar</button>`}
+        </div></td>
+      </tr>`).join('') || '<tr><td colspan="6" style="color:var(--muted)">No hay servidores.</td></tr>';
+  } catch (e) {
+    $('lista').innerHTML = `<tr><td colspan="6" style="color:var(--error)">${esc(e.message)}</td></tr>`;
+  }
+}
+
+$('formAgregar').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const host = normalizarHost($('host').value);
+  if (!host) return;
+  $('btnAgregar').disabled = true;
+  mensaje('cargando', `Detectando las APIs de <b>${esc(host)}</b>… puede tardar unos 15 segundos.`);
+  try {
+    const { servidor: s, aviso } = await api('POST', '/api/servidores', { host, tipo: tipoElegido() });
+    mensaje(aviso ? 'aviso' : 'ok', `✓ <b>${esc(cap(s.nombre))}</b> agregado: ${describir(s)}. ${s.ok}/${s.total} APIs responden.${aviso ? '<br>⚠ ' + esc(aviso) : ''}`);
+    $('host').value = '';
+    pintarVistaPrevia();
+    cargarLista();
+  } catch (err) {
+    mensaje('error', `✗ ${esc(err.message)}`);
+  }
+  $('btnAgregar').disabled = false;
+});
+
+async function cambiarDemo(activo) {
+  $('btnDemo').disabled = true;
+  try {
+    await api('POST', '/api/servidores/demo', { activo });
+    mensaje('ok', activo
+      ? '✓ Servidor de demostración activado. Míralo en Estado en vivo y en Resumen: tiene APIs caídas, lentas y con error de MongoDB.'
+      : '✓ Servidor de demostración quitado.');
+  } catch (err) { mensaje('error', `✗ ${esc(err.message)}`); }
+  $('btnDemo').disabled = false;
+  cargarLista();
+}
+$('btnDemo').addEventListener('click', () => cambiarDemo(!demoActivo));
+
+$('lista').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-quitar-demo]')) return cambiarDemo(false);
+  const re = e.target.closest('[data-redetectar]');
+  const el = e.target.closest('[data-eliminar]');
+  if (re) {
+    re.disabled = true; re.textContent = 'Detectando…';
+    try {
+      const { servidor: s, aviso } = await api('POST', '/api/servidores/redetectar', { nombre: re.dataset.redetectar });
+      mensaje(aviso ? 'aviso' : 'ok', `✓ <b>${esc(cap(s.nombre))}</b> re-detectado: ${describir(s)}.${aviso ? '<br>⚠ ' + esc(aviso) : ''}`);
+    } catch (err) { mensaje('error', `✗ ${esc(err.message)}`); }
+    cargarLista();
+  }
+  if (el) {
+    const nombre = el.dataset.eliminar;
+    $('confTitulo').textContent = `¿Eliminar ${cap(nombre)}?`;
+    $('confTexto').textContent = `${el.dataset.host} dejará de monitorearse y desaparecerá de todas las pestañas.`;
+    $('confirmar').returnValue = '';
+    $('confirmar').showModal();
+    $('confirmar').addEventListener('close', async function alCerrar() {
+      $('confirmar').removeEventListener('close', alCerrar);
+      if ($('confirmar').returnValue !== 'eliminar') return;
+      try {
+        await api('DELETE', `/api/servidores?nombre=${encodeURIComponent(nombre)}`);
+        mensaje('ok', `✓ <b>${esc(cap(nombre))}</b> eliminado del monitoreo.`);
+      } catch (err) { mensaje('error', `✗ ${esc(err.message)}`); }
+      cargarLista();
+    });
+  }
+});
+
+cargarLista();
+</script>
+</body>
+</html>

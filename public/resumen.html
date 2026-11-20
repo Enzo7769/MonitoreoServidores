@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estado APIs DTS</title>
+<style>
+  /* Página tipo reporte (estilo Newman): siempre en modo oscuro. */
+  :root {
+    color-scheme: dark;
+    --page: #2b2d31; --panel: #36393f; --panel-2: #3e4148; --linea: #4a4e57; --linea-suave: #42454c;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a9890;
+    --barra: #3a78b5; --accent: #60a5fa;
+    --good: #2f8f5b; --good-ink: #5fd38d; --warning: #c98a12; --warning-ink: #fab219; --critical: #b83b3b; --critical-ink: #ff8a80;
+    --fila-mal: rgba(208, 59, 59, .28); --fila-aviso: rgba(250, 178, 25, .14);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+  header { position: sticky; top: 0; z-index: 5; background: #232529; border-bottom: 1px solid var(--linea); padding: 0 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 12px 0; }
+  nav { display: flex; gap: 4px; align-self: stretch; }
+  nav a { display: flex; align-items: center; padding: 0 14px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; }
+  nav a.activa { color: var(--accent); border-bottom-color: var(--accent); }
+  .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  .contenido { max-width: 1280px; margin: 0 auto; padding: 24px 20px 40px; }
+  .titulo { text-align: center; margin-bottom: 22px; }
+  .titulo h2 { font-size: clamp(30px, 5vw, 52px); font-weight: 300; margin: 0; color: var(--ink); letter-spacing: .01em; }
+  .titulo .fecha { color: var(--ink-2); font-weight: 600; margin-top: 4px; }
+  .titulo .estado-general { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 16px; border-radius: 999px; font-weight: 700; font-size: 14px; }
+  .estado-general.ok { background: rgba(47,143,91,.25); color: var(--good-ink); }
+  .estado-general.aviso { background: rgba(201,138,18,.25); color: var(--warning-ink); }
+  .estado-general.error { background: rgba(184,59,59,.3); color: var(--critical-ink); }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .tile { position: relative; overflow: hidden; border-radius: 4px; padding: 16px 18px 12px; min-height: 140px; color: #fff; border: 1px solid rgba(255,255,255,.18); }
+  .tile.ok { background: var(--good); } .tile.aviso { background: var(--warning); } .tile.error { background: var(--critical); }
+  .tile .etiqueta { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; position: relative; z-index: 1; }
+  .tile .numero { font-size: 64px; font-weight: 300; line-height: 1.1; margin-top: 6px; position: relative; z-index: 1; }
+  .tile .numero small { font-size: 22px; opacity: .85; margin-left: 4px; }
+  .tile .pie { font-size: 12px; opacity: .9; position: relative; z-index: 1; }
+  .tile svg { position: absolute; right: 10px; bottom: 8px; width: 64px; height: 64px; opacity: .28; }
+
+  .panel { background: var(--panel); border: 1px solid #2f7f86; border-radius: 4px; padding: 14px 16px; margin-bottom: 20px; }
+  .panel h3 { margin: 0 0 12px; background: var(--barra); color: #fff; text-align: center; font-size: 15px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 4px; border-radius: 2px; }
+  .paneles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .paneles .panel { margin-bottom: 20px; }
+  .datos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .datos li { display: flex; gap: 8px; align-items: baseline; }
+  .datos li svg { width: 14px; height: 14px; flex: none; align-self: center; color: var(--ink-2); }
+  .datos b { color: var(--ink); white-space: nowrap; }
+  .datos span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--linea); }
+  th { background: var(--panel-2); color: var(--ink); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 12px 10px; border: 1px solid var(--linea); text-align: center; }
+  th.izq, td.izq { text-align: left; }
+  td { padding: 10px; border: 1px solid var(--linea-suave); text-align: center; color: var(--ink); font-variant-numeric: tabular-nums; }
+  td .host { color: var(--muted); font-size: 12px; display: block; }
+  tr.error td { background: var(--fila-mal); }
+  tr.aviso td { background: var(--fila-aviso); }
+  tfoot td { font-weight: 700; background: var(--panel-2); }
+  .tabla-scroll { overflow-x: auto; margin-bottom: 20px; }
+  .tabla-scroll table { min-width: 720px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12px; white-space: nowrap; }
+  .badge::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+  .badge.ok { color: var(--good-ink); } .badge.aviso { color: var(--warning-ink); } .badge.error { color: var(--critical-ink); }
+  .cero { color: var(--muted); }
+  .etiqueta-demo { font-size: 10px; font-weight: 800; letter-spacing: .06em; color: #fff; background: #7c3aed; padding: 1px 6px; border-radius: 4px; vertical-align: 2px; }
+  table.problemas td { vertical-align: top; }
+  a.enlace { color: var(--ink); text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+  table.problemas .badge { white-space: normal; }
+  td.diag { font-size: 13px; line-height: 1.5; color: var(--ink); max-width: 560px; }
+  td.diag .sug { display: block; color: var(--ink-2); margin-top: 4px; }
+  td.diag code { display: block; margin-top: 4px; font: 11.5px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); word-break: break-all; }
+  .sin-problemas { text-align: center; padding: 18px; color: var(--good-ink); font-weight: 600; background: var(--panel); border: 1px solid var(--linea); }
+
+  @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .paneles { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) {
+    header { padding: 0 16px; } .contenido { padding: 16px; } .meta { margin-left: 0; width: 100%; padding-bottom: 8px; }
+    .tile .numero { font-size: 48px; }
+  }
+  @media print {
+    header { display: none; } body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor de APIs</h1>
+  <nav><a href="/resumen" class="activa">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/servidores">Servidores</a></nav>
+  <span class="meta" id="meta">Cargando…</span>
+</header>
+
+<div class="contenido">
+  <div class="titulo">
+    <h2>Estado APIs Servidores DTS</h2>
+    <div class="fecha" id="fecha"></div>
+    <div id="estadoGeneral"></div>
+  </div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="paneles">
+    <section class="panel">
+      <h3>Información del monitoreo</h3>
+      <ul class="datos" id="infoMonitoreo"></ul>
+    </section>
+    <section class="panel">
+      <h3>Tiempos y disponibilidad</h3>
+      <ul class="datos" id="infoTiempos"></ul>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h3>Resumen por servidor</h3>
+    <div class="tabla-scroll" style="margin:0"><table id="tablaServidores"></table></div>
+  </section>
+
+  <section class="panel">
+    <h3>APIs con problemas ahora</h3>
+    <div id="tablaProblemas"></div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cap = (s) => String(s ?? '').charAt(0).toUpperCase() + String(s ?? '').slice(1);
+const fmtMs = (v) => v == null ? '—' : `${Math.round(v).toLocaleString('es-CL')} ms`;
+const fmtPct = (v) => v == null ? '—' : (v >= 99.995 ? '100' : v.toFixed(2)).replace('.', ',') + ' %';
+const fmtHora = (t) => t ? new Date(t).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+
+function hace(ts) {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return `hace ${s} s`;
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+}
+
+// Íconos (trazo simple, heredan el color del texto).
+const ICONO = {
+  servidor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><circle cx="7" cy="7.5" r=".6" fill="currentColor"/><circle cx="7" cy="16.5" r=".6" fill="currentColor"/></svg>',
+  aviso: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
+  caido: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg>',
+  api: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>',
+  reloj: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  base: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>',
+  grafico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>',
+};
+
+let estado = null, analitica = null;
+
+// Clasifica cada servidor según sus APIs vigiladas (sin acceso y pendientes no cuentan).
+function clasificar(srv) {
+  const apis = srv.apis.filter((a) => a.nivel !== 'sinacceso' && a.nivel !== 'pendiente');
+  const ok = apis.filter((a) => a.nivel === 'ok').length;
+  const avisos = apis.filter((a) => a.nivel === 'aviso').length;
+  const caidas = apis.filter((a) => a.nivel === 'error').length;
+  const tiempos = apis.map((a) => a.ms).filter((v) => v != null);
+  let nivel = 'ok', texto = 'Operativo';
+  if (apis.length === 0 || caidas === apis.length) { nivel = 'error'; texto = 'Caído'; }
+  else if (caidas > 0) { nivel = 'error'; texto = `${caidas} ${caidas === 1 ? 'API caída' : 'APIs caídas'}`; }
+  else if (avisos > 0) { nivel = 'aviso'; texto = 'Con lentitud'; }
+  return {
+    ...srv, total: apis.length, ok, avisos, caidas, nivel, texto,
+    caido: apis.length === 0 || caidas === apis.length,
+    msPromedio: tiempos.length ? tiempos.reduce((x, y) => x + y, 0) / tiempos.length : null,
+  };
+}
+
+function tile(clase, etiqueta, numero, pie, icono) {
+  return `<div class="tile ${clase}"><div class="etiqueta">${etiqueta}</div><div class="numero">${numero}</div><div class="pie">${pie}</div>${icono}</div>`;
+}
+
+function pintar() {
+  const servidores = estado.servidores.map(clasificar);
+  const total = servidores.length;
+  const caidos = servidores.filter((s) => s.caido).length;
+  const conProblemas = servidores.filter((s) => !s.caido && s.nivel !== 'ok').length;
+  const operativos = servidores.filter((s) => s.nivel === 'ok').length;
+  const apisTotal = servidores.reduce((n, s) => n + s.total, 0);
+  const apisCaidas = servidores.reduce((n, s) => n + s.caidas, 0);
+  const apisLentas = servidores.reduce((n, s) => n + s.avisos, 0);
+
+  $('fecha').textContent = estado.actualizado
+    ? new Date(estado.actualizado).toLocaleString('es-CL', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/^./, (c) => c.toUpperCase())
+    : 'Primera revisión en curso…';
+
+  const general = caidos || apisCaidas ? ['error', 'Hay servicios caídos'] : conProblemas ? ['aviso', 'Hay servicios con lentitud'] : ['ok', 'Todos los servicios operativos'];
+  $('estadoGeneral').innerHTML = `<span class="estado-general ${general[0]}">${general[1]}</span>`;
+
+  $('tiles').innerHTML =
+    tile(operativos === total ? 'ok' : 'aviso', 'Servidores operativos', `${operativos}<small>/ ${total}</small>`,
+      operativos === total ? 'Todos sin problemas' : `${total - operativos} requieren atención`, ICONO.servidor) +
+    tile(conProblemas ? 'aviso' : 'ok', 'Servidores con problemas', conProblemas,
+      conProblemas ? 'Alguna API caída o lenta' : 'Ninguno', ICONO.aviso) +
+    tile(caidos ? 'error' : 'ok', 'Servidores caídos', caidos,
+      caidos ? 'Sin respuesta de ninguna API' : 'Ninguno', ICONO.caido) +
+    tile(apisCaidas ? 'error' : 'ok', 'APIs caídas', `${apisCaidas}<small>/ ${apisTotal}</small>`,
+      [apisCaidas ? 'Sin respuesta' : 'Todas responden', apisLentas ? `${apisLentas} ${apisLentas === 1 ? 'lenta' : 'lentas'}` : ''].filter(Boolean).join(' · '), ICONO.api);
+
+  const intervalo = Math.round(estado.intervaloSegundos / 60);
+  const s = Math.max(0, Math.round(((estado.proximaRevision || 0) - Date.now()) / 1000));
+  $('infoMonitoreo').innerHTML = [
+    [ICONO.servidor, 'Servidores monitoreados:', total],
+    [ICONO.api, 'APIs monitoreadas:', apisTotal],
+    [ICONO.reloj, 'Frecuencia:', `cada ${intervalo} minutos`],
+    [ICONO.reloj, 'Última revisión:', estado.actualizado ? `${fmtHora(estado.actualizado)} (${hace(estado.actualizado)})` : '—'],
+    [ICONO.reloj, 'Próxima revisión:', estado.proximaRevision ? `en <span id="cuenta">${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}</span>` : '—'],
+    [ICONO.base, 'Historial:', estado.mongo ? 'MongoDB conectado' : '⚠ sin conexión a MongoDB'],
+  ].map(([i, k, v]) => `<li>${i}<b>${k}</b><span>${v}</span></li>`).join('');
+
+  const todas = servidores.flatMap((sv) => sv.apis.filter((a) => a.ms != null && a.nivel !== 'sinacceso').map((a) => ({ ...a, servidor: sv.nombre })));
+  const lenta = todas.sort((x, y) => y.ms - x.ms)[0];
+  const promedio = todas.length ? todas.reduce((n, a) => n + a.ms, 0) / todas.length : null;
+  const k = analitica?.kpis;
+  $('infoTiempos').innerHTML = [
+    [ICONO.reloj, 'Tiempo de respuesta promedio:', fmtMs(promedio)],
+    [ICONO.reloj, 'Respuesta más lenta:', lenta ? `${fmtMs(lenta.ms)} · ${esc(cap(lenta.servidor))} / ${esc(lenta.nombre)}` : '—'],
+    [ICONO.grafico, 'Disponibilidad últimas 24 h:', k ? fmtPct(k.disponibilidad) : '—'],
+    [ICONO.grafico, 'Incidentes últimas 24 h:', k ? k.incidentes : '—'],
+    [ICONO.grafico, 'Revisiones guardadas (24 h):', analitica ? analitica.ciclos : '—'],
+  ].map(([i, k, v]) => `<li>${i}<b>${k}</b><span>${v}</span></li>`).join('');
+
+  // Tabla por servidor: primero los caídos, luego con problemas, luego alfabético.
+  const orden = { error: 0, aviso: 1, ok: 2 };
+  const filas = [...servidores].sort((a, b) => (b.caido - a.caido) || orden[a.nivel] - orden[b.nivel] || a.nombre.localeCompare(b.nombre));
+  const num = (v, clase = '') => v === 0 ? '<span class="cero">0</span>' : `<span class="${clase}">${v}</span>`;
+  $('tablaServidores').innerHTML = `
+    <thead><tr><th class="izq">Servidor</th><th>APIs</th><th>OK</th><th>Lentas</th><th>Caídas</th><th>Resp. promedio</th><th>Estado</th></tr></thead>
+    <tbody>${filas.map((sv) => `
+      <tr class="${sv.nivel === 'ok' ? '' : sv.nivel}">
+        <td class="izq">${esc(cap(sv.nombre))}${sv.demo ? ' <span class="etiqueta-demo">DEMO</span>' : ''}<span class="host">${esc(sv.host)}</span></td>
+        <td>${sv.total}</td><td>${sv.ok}</td><td>${num(sv.avisos)}</td><td>${num(sv.caidas)}</td>
+        <td>${fmtMs(sv.msPromedio)}</td>
+        <td><span class="badge ${sv.nivel}">${sv.texto}</span></td>
+      </tr>`).join('')}</tbody>
+    <tfoot><tr><td class="izq">Total</td><td>${apisTotal}</td><td>${apisTotal - apisCaidas - apisLentas}</td><td>${apisLentas}</td><td>${apisCaidas}</td><td>${fmtMs(promedio)}</td>
+      <td><span class="badge ${general[0]}">${operativos}/${total} operativos</span></td></tr></tfoot>`;
+
+  const problemas = servidores.flatMap((sv) => sv.apis.filter((a) => a.nivel === 'error' || a.nivel === 'aviso').map((a) => ({ ...a, servidor: sv.nombre })))
+    .sort((a, b) => (a.nivel === 'error' ? 0 : 1) - (b.nivel === 'error' ? 0 : 1) || a.servidor.localeCompare(b.servidor));
+  $('tablaProblemas').innerHTML = problemas.length ? `<div class="tabla-scroll" style="margin:0"><table class="problemas">
+    <thead><tr><th class="izq">Servidor / API</th><th class="izq">Tipo de error</th><th class="izq">Por qué pasa y qué revisar</th><th>Desde</th></tr></thead>
+    <tbody>${problemas.map((a) => `
+      <tr class="${a.nivel}">
+        <td class="izq"><a class="enlace" href="/?abrir=${encodeURIComponent(a.servidor)}"><b>${esc(cap(a.servidor))}</b></a><span class="host">${esc(a.nombre)} ${a.servicio ? '/' + esc(a.servicio) : ':' + a.puerto}</span></td>
+        <td class="izq"><span class="badge ${a.nivel}">${esc(a.error?.titulo || a.detalle)}</span></td>
+        <td class="izq diag">${a.error ? `${esc(a.error.causa)}<span class="sug">→ ${esc(a.error.sugerencia)}</span><code>${esc(a.error.tecnico)}</code>` : esc(a.detalle)}</td>
+        <td>${a.desde ? hace(a.desde) : '—'}</td>
+      </tr>`).join('')}</tbody></table></div>`
+    : '<div class="sin-problemas">✓ Todas las APIs responden correctamente</div>';
+
+  pintarMeta();
+}
+
+function pintarMeta() {
+  if (!estado) return;
+  const s = Math.max(0, Math.round(((estado.proximaRevision || 0) - Date.now()) / 1000));
+  const reloj = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  $('meta').textContent = estado.revisando ? 'Revisión en curso…' : estado.proximaRevision ? `Próxima revisión en ${reloj}` : '';
+  if ($('cuenta')) $('cuenta').textContent = reloj;
+}
+
+// Como las otras vistas: se piden datos justo después de cada revisión.
+let temporizador;
+async function cargar() {
+  clearTimeout(temporizador);
+  try {
+    const [e, a] = await Promise.all([
+      fetch('/api/estado').then((r) => r.json()),
+      fetch('/api/analitica?horas=24').then((r) => r.json()).catch(() => null),
+    ]);
+    estado = e;
+    analitica = a && !a.error ? a : null;
+    pintar();
+  } catch {
+    $('meta').textContent = '⚠ No se pudo conectar con el monitor';
+  }
+  const espera = estado?.proximaRevision && !estado.revisando ? estado.proximaRevision - Date.now() + 15000 : 15000;
+  temporizador = setTimeout(cargar, Math.max(15000, espera));
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) cargar(); });
+
+cargar();
+setInterval(pintarMeta, 1000);
+</script>
+</body>
+</html>

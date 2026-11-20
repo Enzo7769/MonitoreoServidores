@@ -1,0 +1,19 @@
+# Dependencias
+node_modules/
+
+# Credenciales y secretos (nunca subir)
+credenciales.json
+.env
+.env.*
+!.env.example
+
+# Datos operativos generados en tiempo de ejecucion
+logs/
+reportes/
+*.log
+
+# Archivos del sistema operativo y del editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

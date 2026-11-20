@@ -1,0 +1,13 @@
+{
+    "name": "monitor-apis",
+    "version": "1.0.0",
+    "private": true,
+    "main": "monitor.js",
+    "scripts": {
+        "start": "node monitor.js",
+        "descubrir": "node descubrir.js"
+    },
+    "dependencies": {
+        "mongodb": "^6.22.0"
+    }
+}

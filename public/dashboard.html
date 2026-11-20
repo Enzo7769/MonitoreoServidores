@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard de APIs</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f4f5f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --borde: rgba(11,11,11,.10);
+    --serie: #2a78d6; --falla: #eb6834; --falla-0: #f0efec;
+    --good: #0ca30c; --good-txt: #006300; --warning: #fab219; --critical: #d03b3b;
+    --accent: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --borde: rgba(255,255,255,.10);
+      --serie: #3987e5; --falla: #d95926; --falla-0: #2c2c2a;
+      --good-txt: #0ca30c; --accent: #60a5fa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+  header { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--borde); padding: 0 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 12px 0; }
+  nav { display: flex; gap: 4px; align-self: stretch; }
+  nav a { display: flex; align-items: center; padding: 0 14px; color: var(--ink-2); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; }
+  nav a.activa { color: var(--accent); border-bottom-color: var(--accent); }
+  .actualizado { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  .filtros { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 16px 20px 0; }
+  .segmentado { display: inline-flex; border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; background: var(--surface); }
+  .segmentado button { border: 0; background: none; padding: 7px 14px; color: var(--ink-2); font: inherit; font-weight: 600; cursor: pointer; }
+  .segmentado button + button { border-left: 1px solid var(--borde); }
+  .segmentado button.activo { background: var(--accent); color: #fff; }
+  select { padding: 7px 10px; border: 1px solid var(--borde); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+  .chip-filtro { display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 12px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 600; font-size: 13px; }
+  .chip-filtro button { border: 0; background: rgba(255,255,255,.25); color: #fff; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; font-size: 14px; line-height: 1; }
+  .descarga { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+  .descarga input { padding: 6px 8px; border: 1px solid var(--borde); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 400; }
+  .descarga a { padding: 7px 12px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; }
+  .aviso-datos { margin: 16px 20px 0; padding: 10px 14px; border-radius: 8px; background: var(--surface); border: 1px dashed var(--axis); color: var(--ink-2); }
+
+  main { padding: 16px 20px 32px; display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  .tarjeta { background: var(--surface); border: 1px solid var(--borde); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .tarjeta h2 { font-size: 14px; margin: 0 0 2px; }
+  .tarjeta .sub { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+  .c-12 { grid-column: span 12; } .c-6 { grid-column: span 6; } .c-kpi { grid-column: span 12; }
+
+  .kpis { display: grid; gap: 16px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .kpi .etiqueta { color: var(--ink-2); font-size: 13px; font-weight: 600; }
+  .kpi .valor { font-size: 32px; font-weight: 700; margin: 4px 0 2px; letter-spacing: -.01em; }
+  .kpi .valor small { font-size: 16px; font-weight: 600; color: var(--ink-2); margin-left: 2px; }
+  .kpi .nota { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .estado { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; font-size: 12px; }
+  .estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .estado.bien { color: var(--good-txt); } .estado.mal { color: var(--critical); }
+
+  .grafico { position: relative; width: 100%; height: 220px; }
+  .grafico svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .eje text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .grilla line { stroke: var(--grid); stroke-width: 1; }
+  .base { stroke: var(--axis); stroke-width: 1; }
+  .linea { fill: none; stroke: var(--serie); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .area { fill: var(--serie); opacity: .08; }
+  .cursor line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+  .cursor circle { fill: var(--serie); stroke: var(--surface); stroke-width: 2; }
+  .vacio { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); }
+
+  .barras { display: grid; gap: 2px; }
+  .barra { display: grid; grid-template-columns: minmax(90px, 38%) 1fr auto; gap: 10px; align-items: center; padding: 4px 6px; border-radius: 6px; }
+  .barra.clicable { cursor: pointer; }
+  .barra:hover { background: var(--page); }
+  .barra .nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 13px; }
+  .barra .pista { height: 14px; position: relative; }
+  .barra .relleno { position: absolute; inset: 0 auto 0 0; border-radius: 0 4px 4px 0; min-width: 0; }
+  .barra .valor { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; min-width: 64px; }
+  .barras.fallas .relleno { background: var(--falla); }
+  .barras.latencia .relleno { background: var(--serie); }
+
+  .calor { display: grid; gap: 2px; align-items: center; overflow-x: auto; }
+  .calor .fila-nombre { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 8px; }
+  .calor .celda { height: 20px; border-radius: 2px; }
+  .calor .celda.sin-dato { background: transparent; outline: 1px dashed var(--grid); outline-offset: -1px; }
+  .calor .eje-x { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: visible; }
+  .leyenda { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .leyenda .rampa { width: 140px; height: 10px; border-radius: 2px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--axis); }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tabla-scroll { max-height: 340px; overflow: auto; }
+  .nada { color: var(--muted); padding: 12px 0; }
+
+  #tooltip { position: fixed; z-index: 20; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--borde); box-shadow: 0 4px 16px rgba(0,0,0,.15); border-radius: 8px; padding: 8px 10px; font-size: 12px; max-width: 280px; display: none; }
+  #tooltip b { display: block; margin-bottom: 2px; }
+
+  @media (max-width: 1100px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .c-6 { grid-column: span 12; } }
+  @media (max-width: 600px) {
+    header, .filtros { padding-left: 16px; padding-right: 16px; } main { padding: 16px; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .actualizado { margin-left: 0; width: 100%; padding-bottom: 8px; }
+    .filtros select { flex: 1; min-width: 0; }
+    .descarga { margin-left: 0; width: 100%; flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor de APIs</h1>
+  <nav><a href="/resumen">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard" class="activa">Dashboard</a><a href="/servidores">Servidores</a></nav>
+  <span class="actualizado" id="actualizado"></span>
+</header>
+
+<div class="filtros">
+  <div class="segmentado" id="periodo" role="group" aria-label="Periodo">
+    <button data-horas="24">24 horas</button><button data-horas="168">7 días</button><button data-horas="720">30 días</button>
+  </div>
+  <select id="servidor" aria-label="Servidor"></select>
+  <span id="chipFiltro"></span>
+  <span class="descarga">
+    <label for="fechaCsv">Resumen diario</label>
+    <input type="date" id="fechaCsv">
+    <a id="descargarCsv" href="#" download>Descargar CSV</a>
+  </span>
+</div>
+<div id="avisoDatos"></div>
+
+<main>
+  <section class="c-kpi kpis" id="kpis"></section>
+
+  <section class="tarjeta c-6">
+    <h2>Disponibilidad en el tiempo</h2>
+    <p class="sub">% de revisiones sin falla en cada ciclo</p>
+    <div class="grafico" id="gDisponibilidad"></div>
+  </section>
+  <section class="tarjeta c-6">
+    <h2>Tiempo de respuesta en el tiempo</h2>
+    <p class="sub">Promedio por ciclo, en milisegundos</p>
+    <div class="grafico" id="gLatencia"></div>
+  </section>
+
+  <section class="tarjeta c-6">
+    <h2 id="tFallas">Fallas por servidor</h2>
+    <p class="sub" id="sFallas">% de revisiones con falla · clic para filtrar</p>
+    <div class="barras fallas" id="bFallas"></div>
+  </section>
+  <section class="tarjeta c-6">
+    <h2 id="tLatencia">Tiempo de respuesta por servidor</h2>
+    <p class="sub" id="sLatencia">Promedio del periodo, en milisegundos</p>
+    <div class="barras latencia" id="bLatencia"></div>
+  </section>
+
+  <section class="tarjeta c-12">
+    <h2 id="tCalor">Mapa de fallas por servidor</h2>
+    <p class="sub" id="sCalor"></p>
+    <div class="calor" id="calor"></div>
+    <div class="leyenda"><span>0 %</span><span class="rampa" id="rampa"></span><span>100 % con falla</span>
+      <span style="margin-left:12px;display:inline-flex;align-items:center;gap:6px"><span style="width:14px;height:10px;outline:1px dashed var(--grid)"></span>sin datos</span></div>
+  </section>
+
+  <section class="tarjeta c-6">
+    <h2>APIs con más fallas</h2>
+    <p class="sub">Top 10 del periodo</p>
+    <div class="tabla-scroll" id="tablaTop"></div>
+  </section>
+  <section class="tarjeta c-6">
+    <h2>Incidentes recientes</h2>
+    <p class="sub">Cada vez que una API pasó a caída</p>
+    <div class="tabla-scroll" id="tablaIncidentes"></div>
+  </section>
+</main>
+<div id="tooltip"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const SVG = 'http://www.w3.org/2000/svg';
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const cap = (s) => String(s ?? '').charAt(0).toUpperCase() + String(s ?? '').slice(1);
+
+// Los parámetros de la URL (?horas=168&servidor=torax) mandan sobre lo recordado.
+const params = new URLSearchParams(location.search);
+let horas = Number(params.get('horas')) || Number(safeGet('dash-horas')) || 24;
+let servidor = params.has('servidor') ? params.get('servidor') : safeGet('dash-servidor') || '';
+let datos = null;
+
+// ---------- formato ----------
+const fmtPct = (v, d = 2) => v == null ? '—' : (v >= 99.995 ? '100' : v.toFixed(d)).replace('.', ',') + ' %';
+const fmtMs = (v) => v == null ? '—' : `${Math.round(v).toLocaleString('es-CL')} ms`;
+function fmtFecha(t, conHora = true) {
+  const o = horas <= 24 ? { hour: '2-digit', minute: '2-digit' } : conHora ? { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' } : { day: '2-digit', month: '2-digit' };
+  return new Date(t).toLocaleString('es-CL', o);
+}
+const fmtFechaLarga = (t) => new Date(t).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+function fmtDuracion(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h ${m % 60} min`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+
+// ---------- tooltip ----------
+const tip = $('tooltip');
+function mostrarTip(e, html) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const r = tip.getBoundingClientRect();
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - 14;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - 14;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const ocultarTip = () => { tip.style.display = 'none'; };
+
+// ---------- gráfico de línea (SVG) ----------
+function niceTicks(min, max, n = 4) {
+  const paso0 = (max - min) / n || 1;
+  const mag = 10 ** Math.floor(Math.log10(paso0));
+  const paso = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((p) => p >= paso0);
+  const ini = Math.floor(min / paso) * paso;
+  const ticks = [];
+  for (let v = ini; v <= max + paso * 0.001; v += paso) ticks.push(+v.toFixed(6));
+  return ticks;
+}
+
+function grafLinea(cont, puntos, { campo, desde, hasta, yMin, yMax, fmtY, fmtTipY, nombre }) {
+  cont.innerHTML = '';
+  const validos = puntos.filter((p) => p[campo] != null);
+  if (validos.length === 0) { cont.innerHTML = '<div class="vacio">Sin datos en el periodo</div>'; return; }
+  const W = cont.clientWidth, H = cont.clientHeight, m = { l: 52, r: 14, t: 10, b: 24 };
+  const ticks = niceTicks(yMin, yMax);
+  const y0 = ticks[0], y1 = ticks[ticks.length - 1];
+  const x = (t) => m.l + ((t - desde) / (hasta - desde)) * (W - m.l - m.r);
+  const y = (v) => m.t + (1 - (v - y0) / (y1 - y0 || 1)) * (H - m.t - m.b);
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  let html = '<g class="grilla">' + ticks.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/>`).join('') + '</g>';
+  html += '<g class="eje">' + ticks.map((v) => `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${fmtY(v)}</text>`).join('');
+  const nX = W < 420 ? 3 : 5;
+  for (let i = 0; i <= nX; i++) {
+    const t = desde + ((hasta - desde) * i) / nX;
+    html += `<text x="${x(t)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === nX ? 'end' : 'middle'}">${fmtFecha(t, false)}</text>`;
+  }
+  html += `</g><line class="base" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>`;
+
+  // Cortar la línea donde faltan datos (monitor apagado), en vez de unir los puntos.
+  const corte = (datos.intervaloSegundos || 900) * 1000 * 2.5;
+  const tramos = [];
+  validos.forEach((p, i) => {
+    if (i === 0 || p.t - validos[i - 1].t > corte) tramos.push([]);
+    tramos[tramos.length - 1].push(p);
+  });
+  for (const tr of tramos) {
+    const d = tr.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p[campo]).toFixed(1)}`).join('');
+    if (tr.length > 1) html += `<path class="area" d="${d}L${x(tr[tr.length - 1].t)},${H - m.b}L${x(tr[0].t)},${H - m.b}Z"/>`;
+    html += tr.length > 1 ? `<path class="linea" d="${d}"/>` : `<circle cx="${x(tr[0].t)}" cy="${y(tr[0][campo])}" r="3" fill="var(--serie)"/>`;
+  }
+  html += `<g class="cursor" style="display:none"><line y1="${m.t}" y2="${H - m.b}"/><circle r="4"/></g>`;
+  html += `<rect x="${m.l}" y="0" width="${W - m.l - m.r}" height="${H}" fill="transparent"/>`;
+  svg.innerHTML = html;
+  cont.appendChild(svg);
+
+  const cursor = svg.querySelector('.cursor');
+  const zona = svg.querySelector('rect');
+  zona.addEventListener('mousemove', (e) => {
+    const px = ((e.clientX - svg.getBoundingClientRect().left) / svg.getBoundingClientRect().width) * W;
+    let mejor = validos[0];
+    for (const p of validos) if (Math.abs(x(p.t) - px) < Math.abs(x(mejor.t) - px)) mejor = p;
+    cursor.style.display = '';
+    cursor.querySelector('line').setAttribute('x1', x(mejor.t)); cursor.querySelector('line').setAttribute('x2', x(mejor.t));
+    cursor.querySelector('circle').setAttribute('cx', x(mejor.t)); cursor.querySelector('circle').setAttribute('cy', y(mejor[campo]));
+    mostrarTip(e, `<b>${fmtFechaLarga(mejor.t)}</b>${nombre}: ${fmtTipY(mejor[campo])}`);
+  });
+  zona.addEventListener('mouseleave', () => { cursor.style.display = 'none'; ocultarTip(); });
+}
+
+// ---------- barras horizontales ----------
+function barras(cont, filas, { valor, max, texto, tooltip, clic }) {
+  if (!filas.length) { cont.innerHTML = '<p class="nada">Sin datos en el periodo</p>'; return; }
+  const tope = max || Math.max(...filas.map(valor), 0) || 1;
+  cont.innerHTML = filas.map((f, i) => `
+    <div class="barra ${clic ? 'clicable' : ''}" data-i="${i}">
+      <span class="nombre">${esc(f.etiqueta)}</span>
+      <span class="pista"><span class="relleno" style="width:${Math.max(0, (valor(f) / tope) * 100)}%"></span></span>
+      <span class="valor">${texto(f)}</span>
+    </div>`).join('');
+  cont.querySelectorAll('.barra').forEach((el) => {
+    const f = filas[el.dataset.i];
+    el.addEventListener('mousemove', (e) => mostrarTip(e, tooltip(f)));
+    el.addEventListener('mouseleave', ocultarTip);
+    if (clic) el.addEventListener('click', () => { ocultarTip(); clic(f); });
+  });
+}
+
+// ---------- mapa de calor ----------
+function mezclar(a, b, t) {
+  const h = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+  const [ca, cb] = [h(a), h(b)];
+  return '#' + ca.map((v, i) => Math.round(v + (cb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+// Cualquier falla debe notarse: las tasas bajas arrancan en 25 % de intensidad.
+const colorFalla = (tasa) => tasa === 0 ? css('--falla-0') : mezclar(css('--falla-0'), css('--falla'), 0.25 + 0.75 * Math.sqrt(tasa));
+
+function mapaCalor(cont, grupos) {
+  if (!grupos.length) { cont.innerHTML = '<p class="nada">Sin datos en el periodo</p>'; return; }
+  const n = grupos[0].celdas.length;
+  cont.style.gridTemplateColumns = `minmax(110px, 180px) repeat(${n}, minmax(10px, 1fr))`;
+  let html = '';
+  grupos.forEach((g, gi) => {
+    html += `<span class="fila-nombre" title="${esc(g.etiqueta)}">${esc(g.etiqueta)}</span>`;
+    g.celdas.forEach((c, ci) => {
+      html += c ? `<span class="celda" data-g="${gi}" data-c="${ci}" style="background:${colorFalla(c.fallas / c.checks)}"></span>`
+                : `<span class="celda sin-dato" data-g="${gi}" data-c="${ci}"></span>`;
+    });
+  });
+  // Etiquetas del eje de tiempo: unas 6 repartidas.
+  html += '<span></span>';
+  const cada = Math.max(1, Math.round(n / 6));
+  for (let i = 0; i < n; i++) {
+    html += `<span class="eje-x">${i % cada === 0 ? fmtFecha(datos.inicioBuckets + i * datos.bucketMs, horas > 168 ? false : true) : ''}</span>`;
+  }
+  cont.innerHTML = html;
+  cont.querySelectorAll('.celda').forEach((el) => {
+    el.addEventListener('mousemove', (e) => {
+      const g = grupos[el.dataset.g], c = g.celdas[el.dataset.c];
+      const ini = datos.inicioBuckets + el.dataset.c * datos.bucketMs;
+      const rango = `${fmtFechaLarga(ini)} – ${fmtFechaLarga(ini + datos.bucketMs)}`;
+      mostrarTip(e, `<b>${esc(g.etiqueta)}</b>${rango}<br>` + (c ? `${c.fallas} fallas de ${c.checks} revisiones (${fmtPct((c.fallas / c.checks) * 100, 1)})` : 'Sin datos (monitor apagado)'));
+    });
+    el.addEventListener('mouseleave', ocultarTip);
+  });
+  $('rampa').style.background = `linear-gradient(90deg, ${css('--falla-0')}, ${colorFalla(0.0001)}, ${css('--falla')})`;
+}
+
+// ---------- pintado ----------
+function kpi(etiqueta, valor, nota) {
+  return `<div class="tarjeta kpi"><div class="etiqueta">${etiqueta}</div><div class="valor">${valor}</div><div class="nota">${nota}</div></div>`;
+}
+
+function pintar() {
+  const d = datos;
+  // Sin filtro, cada grupo es un servidor: se muestra con mayúscula inicial.
+  if (!d.servidor) d.grupos.forEach((g) => { g.etiqueta = cap(g.clave); });
+  const k = d.kpis, a = d.ahora;
+  const nombrePeriodo = { 24: 'últimas 24 horas', 168: 'últimos 7 días', 720: 'últimos 30 días' }[horas];
+
+  $('kpis').innerHTML =
+    kpi('Disponibilidad', k.disponibilidad == null ? '—' : fmtPct(k.disponibilidad).replace(' %', '<small>%</small>'), nombrePeriodo) +
+    kpi('APIs caídas ahora', a.caidas,
+      a.caidas ? '<span class="estado mal">Crítico</span>' : `<span class="estado bien">Todo arriba</span> de ${a.apis}`) +
+    kpi('Servidores con problemas', `${a.conProblemas}<small>/ ${a.servidores}</small>`,
+      a.conProblemas ? '<span class="estado mal">Revisar</span>' : '<span class="estado bien">Todos OK</span>') +
+    kpi('Tiempo de respuesta', k.msPromedio == null ? '—' : `${k.msPromedio.toLocaleString('es-CL')}<small>ms</small>`, `promedio, ${nombrePeriodo}`) +
+    kpi('Incidentes', k.incidentes, `caídas detectadas, ${nombrePeriodo}`);
+
+  const hasta = Date.now(), desde = hasta - horas * 3600e3;
+  const minDisp = Math.min(...d.serie.map((p) => p.disponibilidad), 100);
+  grafLinea($('gDisponibilidad'), d.serie, {
+    campo: 'disponibilidad', desde, hasta, yMin: Math.min(95, Math.floor(minDisp)), yMax: 100,
+    fmtY: (v) => `${v} %`, fmtTipY: (v) => fmtPct(v), nombre: 'Disponibilidad',
+  });
+  grafLinea($('gLatencia'), d.serie, {
+    campo: 'ms', desde, hasta, yMin: 0, yMax: Math.max(...d.serie.map((p) => p.ms ?? 0), 50),
+    fmtY: (v) => `${v} ms`, fmtTipY: fmtMs, nombre: 'Tiempo de respuesta',
+  });
+
+  const porApi = !!d.servidor;
+  const srvCap = cap(d.servidor);
+  $('tFallas').textContent = porApi ? `Fallas por API en ${srvCap}` : 'Fallas por servidor';
+  $('sFallas').textContent = porApi ? '% de revisiones con falla' : '% de revisiones con falla · clic en un servidor para filtrar';
+  $('tLatencia').textContent = porApi ? `Tiempo de respuesta por API en ${srvCap}` : 'Tiempo de respuesta por servidor';
+  $('tCalor').textContent = porApi ? `Mapa de fallas por API en ${srvCap}` : 'Mapa de fallas por servidor';
+  $('sCalor').textContent = `Cada celda = ${d.bucketMs >= 86400e3 ? '1 día' : d.bucketMs / 3600e3 + ' h'} · el color indica qué parte de las revisiones falló`;
+
+  const tasa = (g) => (g.checks ? (g.fallas / g.checks) * 100 : 0);
+  const filtrar = porApi ? null : (g) => cambiarServidor(g.clave);
+  barras($('bFallas'), [...d.grupos].sort((x, y) => tasa(y) - tasa(x) || x.etiqueta.localeCompare(y.etiqueta)), {
+    valor: tasa, max: Math.max(...d.grupos.map(tasa), 5),
+    texto: (g) => `${fmtPct(tasa(g), 1)} · ${g.fallas}`,
+    tooltip: (g) => `<b>${esc(g.etiqueta)}</b>${g.fallas} fallas de ${g.checks} revisiones<br>Disponibilidad ${fmtPct(g.disponibilidad)}`,
+    clic: filtrar,
+  });
+  barras($('bLatencia'), [...d.grupos].sort((x, y) => (y.msPromedio ?? 0) - (x.msPromedio ?? 0)), {
+    valor: (g) => g.msPromedio ?? 0,
+    texto: (g) => fmtMs(g.msPromedio),
+    tooltip: (g) => `<b>${esc(g.etiqueta)}</b>Promedio ${fmtMs(g.msPromedio)} en ${g.checks} revisiones`,
+    clic: filtrar,
+  });
+
+  mapaCalor($('calor'), [...d.grupos].sort((x, y) => x.etiqueta.localeCompare(y.etiqueta)));
+
+  $('tablaTop').innerHTML = d.topApis.length ? `<table><thead><tr><th>Servidor</th><th>API</th><th class="num">Fallas</th><th class="num">Avisos</th><th class="num">Disponib.</th><th class="num">Resp.</th></tr></thead><tbody>` +
+    d.topApis.map((t) => `<tr><td>${esc(cap(t.servidor))}</td><td>${esc(t.api)}</td><td class="num">${t.fallas}</td><td class="num">${t.avisos}</td><td class="num">${fmtPct(t.disponibilidad, 1)}</td><td class="num">${fmtMs(t.msPromedio)}</td></tr>`).join('') +
+    '</tbody></table>' : '<p class="nada">Ninguna API falló en el periodo. 🎉</p>';
+
+  $('tablaIncidentes').innerHTML = d.incidentes.length ? `<table><thead><tr><th>Inicio</th><th>Servidor</th><th>API</th><th>Tipo de error</th><th class="num">Duración</th><th>Estado</th></tr></thead><tbody>` +
+    d.incidentes.map((i) => `<tr><td>${fmtFechaLarga(i.inicio)}</td><td>${esc(cap(i.servidor))}</td><td>${esc(i.api)}</td><td>${esc(i.tipo || '—')}</td><td class="num">${i.activo ? '≥ ' : ''}${fmtDuracion(i.duracionMs)}</td><td>${i.activo ? '<span class="estado mal">Activo</span>' : '<span class="estado bien">Resuelto</span>'}</td></tr>`).join('') +
+    '</tbody></table>' : '<p class="nada">Sin incidentes en el periodo. 🎉</p>';
+
+  $('avisoDatos').innerHTML = d.ciclos < 4
+    ? `<div class="aviso-datos">Juntando datos: el dashboard se llena con cada revisión (cada ${Math.round(d.intervaloSegundos / 60)} min). Lleva ${d.ciclos} ${d.ciclos === 1 ? 'revisión' : 'revisiones'} guardadas${d.primerDato ? ', desde el ' + fmtFechaLarga(d.primerDato) : ''}.</div>` : '';
+  pintarActualizado();
+}
+
+function pintarActualizado() {
+  if (!datos) return;
+  const s = Math.max(0, Math.round(((datos.proximaRevision || 0) - Date.now()) / 1000));
+  const proxima = datos.proximaRevision ? ` · próxima revisión en ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '';
+  const mongo = datos.mongo === false ? ' · ⚠ sin conexión a MongoDB' : '';
+  $('actualizado').textContent = `Datos al ${new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}${proxima}${mongo}`;
+}
+
+function pintarFiltros() {
+  document.querySelectorAll('#periodo button').forEach((b) => b.classList.toggle('activo', Number(b.dataset.horas) === horas));
+  if (datos) {
+    $('servidor').innerHTML = '<option value="">Todos los servidores</option>' +
+      datos.servidores.map((s) => `<option value="${esc(s)}" ${s === servidor ? 'selected' : ''}>${esc(cap(s))}</option>`).join('');
+  }
+  $('chipFiltro').innerHTML = servidor ? `<span class="chip-filtro">Servidor: ${esc(cap(servidor))} <button title="Quitar filtro" id="quitar">×</button></span>` : '';
+  if (servidor) $('quitar').onclick = () => cambiarServidor('');
+}
+
+// Los datos se piden al monitor justo después de cada revisión (cada 15 min).
+let temporizador;
+async function cargar() {
+  clearTimeout(temporizador);
+  try {
+    const r = await fetch(`/api/analitica?horas=${horas}${servidor ? '&servidor=' + encodeURIComponent(servidor) : ''}`);
+    datos = await r.json();
+    if (datos.error) throw new Error(datos.error);
+    pintarFiltros();
+    pintar();
+  } catch {
+    $('actualizado').textContent = '⚠ No se pudo obtener los datos del monitor';
+  }
+  const espera = datos?.proximaRevision ? datos.proximaRevision - Date.now() + 20000 : 30000;
+  temporizador = setTimeout(cargar, Math.max(20000, espera));
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) cargar(); });
+
+// Resumen diario: por defecto el día de hoy.
+const hoy = new Date();
+$('fechaCsv').value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+const actualizarEnlaceCsv = () => {
+  $('descargarCsv').href = `/api/resumen.csv?fecha=${$('fechaCsv').value}`;
+  $('descargarCsv').setAttribute('download', `resumen-${$('fechaCsv').value}.csv`);
+};
+$('fechaCsv').addEventListener('change', actualizarEnlaceCsv);
+actualizarEnlaceCsv();
+
+function cambiarServidor(s) { servidor = s; safeSet('dash-servidor', s); cargar(); }
+$('servidor').addEventListener('change', (e) => cambiarServidor(e.target.value));
+$('periodo').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  horas = Number(b.dataset.horas); safeSet('dash-horas', horas); cargar();
+});
+let resizeT;
+addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => datos && pintar(), 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => datos && pintar());
+
+pintarFiltros();
+cargar();
+setInterval(pintarActualizado, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+{
+  "default": { "idEjecutivo": "USUARIO_MONITOR", "password": "CLAVE" },
+  "dashboard": { "usuario": "admin", "clave": "CLAVE_DEL_DASHBOARD" }
+}

@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor de APIs</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
+    --ok: #16a34a; --ok-bg: #dcfce7; --aviso: #d97706; --aviso-bg: #fef3c7;
+    --error: #dc2626; --error-bg: #fee2e2; --pend: #9ca3af; --accent: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --text: #e5e7eb; --muted: #9ca3af; --line: #2a2f3a;
+      --ok: #22c55e; --ok-bg: #12301f; --aviso: #f59e0b; --aviso-bg: #3a2a0a;
+      --error: #f87171; --error-bg: #3b1414; --pend: #6b7280; --accent: #60a5fa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
+  h1 { font-size: 18px; margin: 0; }
+  nav { display: flex; gap: 4px; align-self: stretch; margin: -12px 0; }
+  nav a { display: flex; align-items: center; padding: 0 14px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; }
+  nav a.activa { color: var(--accent); border-bottom-color: var(--accent); }
+  .resumen { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 13px; }
+  .chip.ok { background: var(--ok-bg); color: var(--ok); }
+  .chip.aviso { background: var(--aviso-bg); color: var(--aviso); }
+  .chip.error { background: var(--error-bg); color: var(--error); }
+  .chip.sinacceso { background: var(--line); color: var(--muted); }
+  .seccion { padding: 8px 14px 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .controles { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .controles input[type=search] { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); width: 180px; }
+  button { padding: 6px 12px; border: 0; border-radius: 6px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .meta { color: var(--muted); font-size: 12px; }
+  main { padding: 20px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); align-items: start; }
+  .srv { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .srv.error { border-color: var(--error); }
+  .srv.aviso { border-color: var(--aviso); }
+  .srv-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; }
+  .srv-head h2 { font-size: 15px; margin: 0; }
+  .srv-head .host { color: var(--muted); font-size: 12px; }
+  .srv-head .cuenta { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .srv.cerrado .lista { display: none; }
+  .lista { list-style: none; margin: 0; padding: 4px 0; }
+  .api { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 5px 14px; }
+  .api:hover { background: var(--bg); }
+  .api .nombre { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .api .puerto { color: var(--muted); font-weight: 400; }
+  .api .ms { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .api .detalle { grid-column: 2 / 4; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .api.error .detalle .txt { color: var(--error); font-weight: 600; }
+  .api.aviso .detalle .txt { color: var(--aviso); }
+  .punto { width: 10px; height: 10px; border-radius: 50%; background: var(--pend); }
+  .api.ok > .punto, .srv.ok > .srv-head .punto, .hist i.ok { background: var(--ok); }
+  .api.aviso > .punto, .srv.aviso > .srv-head .punto, .hist i.aviso { background: var(--aviso); }
+  .api.error > .punto, .srv.error > .srv-head .punto, .hist i.error { background: var(--error); }
+  .api.sinacceso > .punto { background: transparent; border: 2px solid var(--pend); }
+  .api.sinacceso .nombre { color: var(--muted); }
+  .hist { display: flex; gap: 1px; align-items: center; }
+  .hist i { width: 4px; height: 10px; border-radius: 1px; background: var(--pend); display: block; }
+  .vacio { padding: 14px; color: var(--muted); }
+  .estado-txt { display: none; }
+  .srv-head h2 { display: flex; align-items: center; gap: .4em; min-width: 0; }
+  .nombre-srv { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .etiqueta-demo { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .06em; color: #fff; background: #7c3aed; padding: 2px 6px; border-radius: 4px; line-height: 1.3; }
+  body.lleno .etiqueta-demo { font-size: clamp(9px, 9cqh, 12px); }
+
+  /* Diagnóstico de una API con falla */
+  .diag { grid-column: 2 / 4; margin: 6px 0 4px; padding: 10px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; background: var(--error-bg); border-left: 3px solid var(--error); display: grid; gap: 5px; }
+  .api.aviso .diag { background: var(--aviso-bg); border-left-color: var(--aviso); }
+  .diag b { color: var(--text); }
+  .diag .tipo-error { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--error); }
+  .api.aviso .diag .tipo-error { color: var(--aviso); }
+  .diag code { font: 11.5px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); word-break: break-all; }
+  .diag .meta-diag { color: var(--muted); font-size: 11.5px; }
+  #contraer { background: var(--bg); color: var(--text); border: 1px solid var(--line); }
+
+  /* Modo "pantalla llena": todos contraídos -> las tarjetas ocupan toda la pantalla, sin scroll.
+     El número de columnas lo calcula ajustarGrilla() según el tamaño de la ventana. */
+  body.lleno { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  body.lleno main { flex: 1; min-height: 0; grid-auto-rows: minmax(0, 1fr); align-items: stretch; overflow: hidden; }
+  body.lleno .srv { display: flex; flex-direction: column; justify-content: center; border-left-width: 6px; container-type: size; cursor: pointer; transition: transform .12s, box-shadow .12s; }
+  body.lleno .srv:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+  body.lleno .srv.ok { border-left-color: var(--ok); }
+  body.lleno .srv-head { border-bottom: 0; height: 100%; padding: 0 clamp(10px, 6cqw, 22px); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; align-content: center; }
+  body.lleno .srv-head .punto { grid-row: 1 / 3; width: clamp(10px, 14cqh, 18px); height: clamp(10px, 14cqh, 18px); }
+  body.lleno .srv-head h2 { font-size: clamp(14px, 22cqh, 26px); }
+  body.lleno .srv-head .host { grid-column: 2; grid-row: 2; font-size: clamp(11px, 11cqh, 14px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.lleno .srv-head .cuenta { grid-column: 3; grid-row: 1; font-size: clamp(12px, 15cqh, 20px); font-weight: 700; color: var(--text); text-align: right; }
+  body.lleno .estado-txt { display: block; grid-column: 3; grid-row: 2; font-size: clamp(11px, 11cqh, 14px); font-weight: 600; text-align: right; white-space: nowrap; }
+  .srv.ok .estado-txt { color: var(--ok); } .srv.aviso .estado-txt { color: var(--aviso); } .srv.error .estado-txt { color: var(--error); }
+  @container (max-height: 46px) { .srv-head .host, .estado-txt { display: none !important; } }
+
+  @media (max-width: 600px) {
+    header { padding: 10px 16px; } main { padding: 12px; gap: 10px; }
+    body:not(.lleno) main { grid-template-columns: 1fr; }
+    .controles { margin-left: 0; width: 100%; } .controles input[type=search] { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor de APIs</h1>
+  <nav><a href="/resumen">Resumen</a><a href="/" class="activa">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/servidores">Servidores</a></nav>
+  <div class="resumen" id="resumen"></div>
+  <div class="controles">
+    <input type="search" id="buscar" placeholder="Buscar servidor o API…">
+    <label><input type="checkbox" id="soloProblemas"> Solo problemas</label>
+    <button id="contraer" hidden>Contraer todo</button>
+    <button id="revisar">Revisar ahora</button>
+    <span class="meta" id="meta">Cargando…</span>
+  </div>
+</header>
+<main id="grilla"></main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+// Por defecto todos los servidores están contraídos; aquí se recuerdan los abiertos.
+const abiertos = new Set(JSON.parse(safeGet('abiertos') || '[]'));
+// /?abrir=torax abre ese servidor (lo usan los enlaces de la pestaña Resumen).
+new URLSearchParams(location.search).getAll('abrir').forEach((n) => abiertos.add(n));
+let datos = null;
+
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+const cap = (s) => String(s ?? '').charAt(0).toUpperCase() + String(s ?? '').slice(1);
+
+function cuentaRegresiva(ts) {
+  const s = Math.max(0, Math.round((ts - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function hace(ts) {
+  if (!ts) return '—';
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return `hace ${s}s`;
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+}
+
+// Al pasar el mouse por una tarjeta contraída: qué falla y por qué.
+function tooltipServidor(s) {
+  const fallas = s.apis.filter((a) => a.error && (a.nivel === 'error' || a.nivel === 'aviso'));
+  if (!fallas.length) return 'Clic para ver sus APIs';
+  return fallas.map((a) => `• ${a.nombre}${a.servicio ? ' /' + a.servicio : ' :' + a.puerto}: ${a.error.titulo}`).join('\n') + '\n\nClic para ver el detalle';
+}
+
+function diagnosticoHtml(a) {
+  const e = a.error;
+  const ultimoOk = a.ultimoOk ? `último OK ${hace(a.ultimoOk)}` : 'sin respuestas OK desde que arrancó el monitor';
+  return `<div class="diag">
+    <span class="tipo-error">${a.nivel === 'error' ? '✕' : '⚠'} ${esc(e.titulo)}</span>
+    <span><b>Por qué pasa:</b> ${esc(e.causa)}</span>
+    <span><b>Qué revisar:</b> ${esc(e.sugerencia)}</span>
+    <code>${esc(e.tecnico)}</code>
+    <span class="meta-diag">Falla desde ${a.desde ? hace(a.desde) : '—'} · ${ultimoOk}</span>
+  </div>`;
+}
+
+// 'sinacceso' (gris) no cuenta como problema: es que el monitor no tiene token para llegar.
+function nivelServidor(srv) {
+  if (!srv.apis.length) return 'error';
+  if (srv.apis.some((a) => a.nivel === 'error')) return 'error';
+  if (srv.apis.some((a) => a.nivel === 'aviso')) return 'aviso';
+  return 'ok';
+}
+
+function pintar() {
+  if (!datos) return;
+  const filtro = $('buscar').value.trim().toLowerCase();
+  const solo = $('soloProblemas').checked;
+  const orden = { error: 0, aviso: 1, ok: 2 };
+
+  const cuenta = { ok: 0, aviso: 0, error: 0, sinacceso: 0 };
+  let srvMal = 0;
+  const servidores = datos.servidores.map((s) => ({ ...s, nivel: nivelServidor(s) }));
+  for (const s of servidores) {
+    if (s.nivel !== 'ok') srvMal++;
+    for (const a of s.apis) if (a.nivel in cuenta) cuenta[a.nivel]++;
+  }
+  $('resumen').innerHTML =
+    `<span class="chip ${srvMal ? 'error' : 'ok'}">${servidores.length - srvMal}/${servidores.length} servidores OK</span>` +
+    `<span class="chip ok">${cuenta.ok} OK</span>` +
+    (cuenta.aviso ? `<span class="chip aviso">${cuenta.aviso} con aviso</span>` : '') +
+    (cuenta.error ? `<span class="chip error">${cuenta.error} caídas</span>` : '') +
+    (cuenta.sinacceso ? `<span class="chip sinacceso" title="Servicios detrás del gateway que piden JWT. Configura credenciales.json.">${cuenta.sinacceso} sin acceso</span>` : '');
+
+  servidores.sort((a, b) => orden[a.nivel] - orden[b.nivel] || a.nombre.localeCompare(b.nombre));
+
+  const html = servidores.map((s) => {
+    const coincideSrv = !filtro || s.nombre.includes(filtro) || s.host.includes(filtro);
+    let apis = s.apis.filter((a) => coincideSrv || a.nombre.toLowerCase().includes(filtro) || (a.servicio || '').toLowerCase().includes(filtro) || String(a.puerto).includes(filtro));
+    if (solo) apis = apis.filter((a) => a.nivel !== 'ok' && a.nivel !== 'sinacceso');
+    if (s.apis.length ? !apis.length : !coincideSrv) return '';
+    apis.sort((a, b) => (orden[a.nivel] ?? 3) - (orden[b.nivel] ?? 3) || a.puerto - b.puerto || a.nombre.localeCompare(b.nombre));
+
+    const fila = (a) => {
+      const hist = Array.from({ length: Math.max(0, 30 - a.historial.length) }, () => '<i></i>').join('') +
+        a.historial.map((n) => `<i class="${n}"></i>`).join('');
+      const tip = [a.ruta && `GET ${a.ruta} → ${a.codigo}`, a.cuerpo].filter(Boolean).join('\n');
+      const donde = a.tipo === 'gateway' ? `/${esc(a.servicio)}` : `:${a.puerto}`;
+      return `<li class="api ${a.nivel}" title="${esc(tip)}">
+        <span class="punto"></span>
+        <span class="nombre">${esc(a.nombre)} <span class="puerto">${donde}</span></span>
+        <span class="ms">${a.ms != null ? a.ms + ' ms' : ''}</span>
+        <span class="detalle"><span class="txt">${esc(a.detalle)}${!['ok', 'sinacceso'].includes(a.nivel) && a.desde ? ' · ' + hace(a.desde) : ''}</span><span class="hist">${hist}</span></span>
+        ${a.error && a.nivel !== 'ok' ? diagnosticoHtml(a) : ''}
+      </li>`;
+    };
+    const directas = apis.filter((a) => a.tipo !== 'gateway');
+    const porGateway = apis.filter((a) => a.tipo === 'gateway');
+    const gwPuerto = porGateway[0]?.puerto;
+
+    const nOk = s.apis.filter((a) => a.nivel === 'ok').length;
+    const nVisibles = s.apis.filter((a) => a.nivel !== 'sinacceso').length;
+    const nCaidas = s.apis.filter((a) => a.nivel === 'error').length;
+    const nLentas = s.apis.filter((a) => a.nivel === 'aviso').length;
+    const estadoTxt = !s.apis.length || nCaidas === nVisibles ? 'Caído'
+      : nCaidas ? `${nCaidas} ${nCaidas === 1 ? 'caída' : 'caídas'}`
+      : nLentas ? `${nLentas} ${nLentas === 1 ? 'lenta' : 'lentas'}` : 'Todo OK';
+    const filas = s.apis.length === 0
+      ? '<li class="vacio">Sin puertos accesibles. Usa "Re-detectar" en la pestaña Servidores o revisa el firewall.</li>'
+      : directas.map(fila).join('') +
+        (porGateway.length ? `<li class="seccion">Vía gateway :${gwPuerto}</li>` + porGateway.map(fila).join('') : '');
+
+    return `<section class="srv ${s.nivel} ${abiertos.has(s.nombre) ? 'abierto' : 'cerrado'}" data-srv="${esc(s.nombre)}">
+      <div class="srv-head" title="${esc(tooltipServidor(s))}"><span class="punto"></span><h2><span class="nombre-srv">${esc(cap(s.nombre))}</span>${s.demo ? '<span class="etiqueta-demo">DEMO</span>' : ''}</h2><span class="host">${esc(s.host)}</span>
+        <span class="cuenta">${nOk}/${nVisibles} OK</span><span class="estado-txt">${estadoTxt}</span></div>
+      <ul class="lista">${filas}</ul>
+    </section>`;
+  }).join('');
+
+  $('grilla').innerHTML = html || '<p class="vacio">Nada que mostrar con este filtro. 🎉</p>';
+  ajustarGrilla();
+  pintarMeta();
+}
+
+// Con todos contraídos, elige el número de columnas que mejor llena la pantalla.
+// Si no caben (pantalla muy baja o muchos servidores), vuelve al modo con scroll.
+function ajustarGrilla() {
+  const grilla = $('grilla');
+  const tarjetas = grilla.querySelectorAll('.srv');
+  const hayAbiertos = grilla.querySelector('.srv.abierto') !== null;
+  $('contraer').hidden = !hayAbiertos;
+  document.body.classList.toggle('lleno', !hayAbiertos && tarjetas.length > 0);
+  grilla.style.gridTemplateColumns = '';
+  if (hayAbiertos || !tarjetas.length) return;
+
+  const n = tarjetas.length;
+  const estilo = getComputedStyle(grilla);
+  const gap = parseFloat(estilo.rowGap) || 16;
+  const W = grilla.clientWidth - parseFloat(estilo.paddingLeft) - parseFloat(estilo.paddingRight);
+  const H = grilla.clientHeight - parseFloat(estilo.paddingTop) - parseFloat(estilo.paddingBottom);
+  let mejor = null;
+  for (let cols = 1; cols <= n; cols++) {
+    const filas = Math.ceil(n / cols);
+    const ancho = (W - gap * (cols - 1)) / cols;
+    const alto = (H - gap * (filas - 1)) / filas;
+    if (cols > 1 && ancho < 170) break;
+    // Buscamos tarjetas "apaisadas" (~3,2:1) lo más grandes posible.
+    const tamano = Math.min(ancho / 3.2, alto);
+    if (!mejor || tamano > mejor.tamano) mejor = { cols, alto, tamano };
+  }
+  if (mejor.alto < 44) {
+    document.body.classList.remove('lleno');
+    return;
+  }
+  grilla.style.gridTemplateColumns = `repeat(${mejor.cols}, minmax(0, 1fr))`;
+}
+let redimensionar;
+addEventListener('resize', () => { clearTimeout(redimensionar); redimensionar = setTimeout(ajustarGrilla, 100); });
+
+function pintarMeta() {
+  if (!datos) return;
+  if (!datos.actualizado || datos.revisando) { $('meta').textContent = 'Revisión en curso…'; return; }
+  const proxima = datos.proximaRevision ? ` · próxima en ${cuentaRegresiva(datos.proximaRevision)}` : '';
+  const mongo = datos.mongo === false ? ' · ⚠ sin conexión a MongoDB' : '';
+  $('meta').textContent = `Última revisión ${hace(datos.actualizado)}${proxima}${mongo}`;
+}
+
+// La página no consulta las APIs: pide los resultados al monitor justo después de
+// cada revisión (cada 15 min) y mientras tanto solo actualiza la cuenta regresiva.
+let temporizador;
+async function cargar() {
+  clearTimeout(temporizador);
+  try {
+    datos = await (await fetch('/api/estado')).json();
+    pintar();
+  } catch {
+    $('meta').textContent = '⚠ No se pudo conectar con el monitor';
+  }
+  const espera = datos?.proximaRevision && !datos.revisando ? datos.proximaRevision - Date.now() + 15000 : 15000;
+  temporizador = setTimeout(cargar, Math.max(15000, espera));
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) cargar(); });
+
+const guardarAbiertos = () => safeSet('abiertos', JSON.stringify([...abiertos]));
+$('grilla').addEventListener('click', (e) => {
+  // En pantalla llena toda la tarjeta es clicable; abierta, solo su encabezado.
+  const tarjeta = document.body.classList.contains('lleno') ? e.target.closest('.srv') : e.target.closest('.srv-head')?.parentElement;
+  if (!tarjeta) return;
+  const nombre = tarjeta.dataset.srv;
+  abiertos.has(nombre) ? abiertos.delete(nombre) : abiertos.add(nombre);
+  guardarAbiertos();
+  pintar();
+  if (abiertos.has(nombre)) document.querySelector(`.srv[data-srv="${CSS.escape(nombre)}"]`)?.scrollIntoView({ block: 'nearest' });
+});
+$('contraer').addEventListener('click', () => { abiertos.clear(); guardarAbiertos(); pintar(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && abiertos.size) { abiertos.clear(); guardarAbiertos(); pintar(); } });
+$('buscar').addEventListener('input', pintar);
+$('soloProblemas').addEventListener('change', () => { safeSet('solo', $('soloProblemas').checked ? '1' : ''); pintar(); });
+$('soloProblemas').checked = safeGet('solo') === '1';
+$('revisar').addEventListener('click', async () => {
+  $('revisar').disabled = true; $('revisar').textContent = 'Revisando…';
+  try { datos = await (await fetch('/api/revisar', { method: 'POST' })).json(); pintar(); } catch {}
+  $('revisar').disabled = false; $('revisar').textContent = 'Revisar ahora';
+});
+
+cargar();
+setInterval(pintarMeta, 1000);
+</script>
+</body>
+</html>
