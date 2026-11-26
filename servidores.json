@@ -3,6 +3,11 @@
   "timeoutMs": 5000,
   "lentoMs": 2000,
   "puertoDashboard": 8090,
+  "ssl": {
+    "activo": false,
+    "certificado": "certs/certificado.pem",
+    "clave": "certs/clave.key"
+  },
   "retencionDias": 30,
   "zonaHoraria": "America/Santiago",
   "mongoUri": "mongodb://test.dts.lat:27017/?directConnection=true",

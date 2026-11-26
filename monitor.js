@@ -3,10 +3,13 @@
 // en MongoDB y sirve un dashboard (el HTML solo visualiza; el monitoreo corre aquí).
 //
 // Uso: node monitor.js   ->  http://localhost:8090   (en producción: pm2, ver README.md)
+// Con "ssl.activo": true en servidores.json, el panel sale por HTTPS.
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const { MongoClient } = require('mongodb');
 const { puertos: catalogo, serviciosGateway } = require('./catalogo');
 const { pedirAuto, probarSocketIO, RUTA_SOCKETIO, leerJson, esperar, enParalelo } = require('./sondas');
 const analitica = require('./analitica');
@@ -14,11 +17,16 @@ const almacen = require('./almacen');
 const descubrimiento = require('./descubrimiento');
 const diagnostico = require('./diagnostico');
 const demo = require('./demo');
+const slo = require('./slo');
 const certificados = require('./certificados');
 const { calcularDeriva } = require('./deriva');
 const Incidentes = require('./incidentes');
 
 const RUTA_CREDENCIALES = path.join(__dirname, 'credenciales.json');
+const MSG_SSL_INCOMPLETO =
+  'SSL: en servidores.json faltan "ssl.certificado" o "ssl.clave".';
+const MSG_SSL_LECTURA =
+  'SSL: no se pudo leer el certificado o la clave privada.';
 const RUTA_EVENTOS = path.join(__dirname, 'logs', 'eventos.log');
 const RUTA_REPORTES = path.join(__dirname, 'reportes');
 const HISTORIAL_MAX = 30;
@@ -41,6 +49,7 @@ const ESPERAS_CONFIRMACION = () => opcion('confirmacionEsperasMs', [3000, 8000])
 const INTERVALO_FALLA_MS = () => opcion('intervaloFallaSegundos', 60) * 1000;
 const SSL_AVISO_DIAS = () => opcion('sslAvisoDias', 30);
 const SSL_CADA_MS = () => opcion('sslRevisarHoras', 6) * 3600e3;
+const PUERTO_MONGO = 27017;
 
 const enMantencion = (srv) => !!srv.mantencion && srv.mantencion.hasta > Date.now();
 
@@ -56,9 +65,98 @@ function leerCredenciales() {
 function definicionPuerto(srv, puerto) {
   if (srv.gateway?.puerto === puerto) {
     const nombre = descubrimiento.tipoDe(srv) === 'proxy' ? 'Proxy (APIGatewayFila)' : 'APIGatewayFila';
-    return { nombre, health: ['/health', '/ping'] };
+    return { nombre, health: ['/health', '/ping'], contrato: '/health/detalle' };
   }
   return catalogo[puerto] || { nombre: `Puerto ${puerto}` };
+}
+
+// Puerto de MongoDB entre 1 y 65535; si no viene uno válido, el 27017.
+function puertoMongo(valor) {
+  const n = Number(valor);
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : PUERTO_MONGO;
+}
+
+// Destino del ping. null si ese servidor no tiene el monitoreo activo (el defecto).
+function mongoDe(srv) {
+  if (!srv || srv.demo || srv.mongo?.activo !== true) return null;
+  const host = String(srv.mongo.host || '').trim() || srv.host;
+  return { host, puerto: puertoMongo(srv.mongo.puerto) };
+}
+
+function mongoPideUsuario(error) {
+  const texto = `${error.code || ''} ${error.codeName || ''} ${error.message || ''}`;
+  return error.code === 13 || error.code === 18
+    || /unauthorized|authentication|requires authentication/i.test(texto);
+}
+
+// Ping a MongoDB del servidor. Un rechazo por usuario cuenta como "arriba":
+// el proceso respondió, solo pide credenciales.
+async function revisarMongo(srv) {
+  const destino = mongoDe(srv);
+  const { timeoutMs, lentoMs } = config;
+  const ruta = `mongodb://${destino.host}:${destino.puerto}`;
+  const cliente = new MongoClient(ruta, {
+    directConnection: true,
+    serverSelectionTimeoutMS: timeoutMs,
+    connectTimeoutMS: timeoutMs,
+    socketTimeoutMS: timeoutMs,
+  });
+  const t0 = Date.now();
+  try {
+    await cliente.connect();
+    await cliente.db('admin').command({ ping: 1 });
+    const ms = Date.now() - t0;
+    const base = { ms, codigo: 200, ruta };
+    if (ms > lentoMs) {
+      return conError('aviso', {
+        tipo: 'LENTA',
+        titulo: `Lenta (${ms.toLocaleString('es-CL')} ms)`,
+        causa: `MongoDB en ${destino.host}:${destino.puerto} respondió, pero el ping tardó ${ms.toLocaleString('es-CL')} ms (límite ${lentoMs.toLocaleString('es-CL')} ms).`,
+        sugerencia: 'Revisa la carga del servidor y si mongod está saturado.',
+        tecnico: `${ruta} ping → ${ms} ms`,
+      }, base);
+    }
+    return { ...base, nivel: 'ok', detalle: 'MongoDB responde' };
+  } catch (e) {
+    const ms = Date.now() - t0;
+    if (mongoPideUsuario(e)) {
+      return { ms, nivel: 'ok', detalle: 'MongoDB responde (pide usuario)', ruta };
+    }
+    const ctx = { host: destino.host, puerto: destino.puerto, timeoutMs };
+    return conError('error', diagnostico.deMongo(e, ctx), { ms, ruta });
+  } finally {
+    await cliente.close().catch(() => {});
+  }
+}
+
+function itemMongo(srv) {
+  const destino = mongoDe(srv);
+  if (!destino) return [];
+  return [{
+    id: 'mongo',
+    clave: `${srv.host}:mongo`,
+    etiqueta: `[${srv.nombre}] MongoDB:${destino.puerto}`,
+    revisar: () => revisarMongo(srv),
+  }];
+}
+
+function apiMongo(srv) {
+  const destino = mongoDe(srv);
+  if (!destino) return [];
+  return [{
+    id: 'mongo',
+    puerto: destino.puerto,
+    nombre: 'MongoDB',
+    tipo: 'mongo',
+    ...(estado.get(`${srv.host}:mongo`) || PENDIENTE),
+  }];
+}
+
+// Al apagar el monitoreo, el resultado anterior no debe seguir viéndose en rojo.
+function olvidarMongoApagado() {
+  for (const srv of config.servidores) {
+    if (!mongoDe(srv)) estado.delete(`${srv.host}:mongo`);
+  }
 }
 
 // nivel: 'ok' (verde) | 'aviso' (amarillo) | 'error' (rojo) | 'sinacceso' (gris)
@@ -83,6 +181,21 @@ async function revisarApi(srv, puerto) {
     if (!r.sesion) return conError('aviso', diagnostico.noSocketIO(r.codigo, r.cuerpo, ctx), base);
     if (r.ms > lentoMs) return conError('aviso', diagnostico.lenta(r.ms, ctx), base);
     return { ...base, nivel: 'ok', detalle: 'Socket.IO acepta sesiones' };
+  }
+
+  // Contrato de health (dts-health/1): si la API lo tiene, manda. Si no, sigue como siempre.
+  const rutaContrato = def.contrato || RUTA_CONTRATO;
+  ctx.ruta = rutaContrato;
+  let rc;
+  try {
+    rc = await pedirAuto(protoCache.get(clave), srv.host, puerto, rutaContrato, timeoutMs);
+  } catch (e) {
+    return conError('error', diagnostico.deRed(e, ctx));
+  }
+  protoCache.set(clave, rc.proto);
+  const jc = leerJson(rc.cuerpo);
+  if (esContrato(jc)) {
+    return resultadoContrato(rc, jc, ctx, { ms: rc.ms, codigo: rc.codigo, ruta: rutaContrato, cuerpo: rc.cuerpo.slice(0, 300) });
   }
 
   let ultimo = null;
@@ -121,6 +234,30 @@ async function revisarApi(srv, puerto) {
 // Resultado con diagnóstico: "detalle" es el título corto; "error" trae causa y sugerencia.
 function conError(nivel, error, extra = {}) {
   return { ...extra, nivel, detalle: error.titulo, error };
+}
+
+// ---- Contrato de health "dts-health/1" (ver contrato-health.js en cada API) ----
+
+const RUTA_CONTRATO = '/api/health/detalle';
+const esContrato = (json) => typeof json?.contrato === 'string' && json.contrato.startsWith('dts-health/');
+
+// Lo que se guarda del contrato en el estado (lo demás no aporta al monitoreo).
+function datosContrato(j) {
+  return {
+    servicio: j.servicio, version: j.version, commit: j.commit, rama: j.rama, entorno: j.entorno,
+    iniciado: j.iniciado, uptimeSegundos: j.uptimeSegundos, memoriaMB: j.memoriaMB, dependencias: j.dependencias || {},
+  };
+}
+
+// La API dice ella misma cómo está: ok, degradado (aviso) o caido (error, con 503).
+function resultadoContrato(r, json, ctxBase, base) {
+  const ctx = { ...ctxBase, nombre: json.servicio || ctxBase.nombre };
+  const extra = { ...base, contrato: datosContrato(json) };
+  if (json.estado === 'caido') return conError('error', diagnostico.deContrato(json, r.codigo, ctx), extra);
+  if (json.estado === 'degradado') return conError('aviso', diagnostico.deContrato(json, r.codigo, ctx), extra);
+  if (r.ms > ctx.lentoMs) return conError('aviso', diagnostico.lenta(r.ms, ctx), extra);
+  const mongo = json.dependencias?.mongo;
+  return { ...extra, nivel: 'ok', detalle: mongo?.ms != null ? `Health OK · Mongo ${mongo.ms} ms` : 'Health OK' };
 }
 
 // ---- Revisión a través de APIGatewayFila -------------------------------------
@@ -171,9 +308,9 @@ async function revisarServicioGateway(srv, servicio) {
   const ruta = `/${servicio}/health`;
   const { timeoutMs, lentoMs } = config;
 
-  const consultar = async (token) => {
+  const consultar = async (token, rutaConsulta = ruta) => {
     const headers = token ? { Authorization: `Bearer ${token}`, Cookie: `token=${token}` } : {};
-    const r = await pedirAuto(protoCache.get(clave), srv.host, puerto, ruta, timeoutMs, { headers });
+    const r = await pedirAuto(protoCache.get(clave), srv.host, puerto, rutaConsulta, timeoutMs, { headers });
     protoCache.set(clave, r.proto);
     return r;
   };
@@ -184,13 +321,26 @@ async function revisarServicioGateway(srv, servicio) {
 
   let r;
   let sesion = tokens.get(srv.host);
-  try {
-    r = await consultar(sesion?.token);
-    // El gateway pide JWT: hacer login (o renovar el token vencido) y reintentar una vez.
-    if (r.codigo === 401 && /JWT|token/i.test(r.cuerpo) && credencialesDe(srv)) {
+  // El gateway pide JWT: hacer login (o renovar el token vencido) y reintentar una vez.
+  const pedirConSesion = async (rutaConsulta) => {
+    let resp = await consultar(sesion?.token, rutaConsulta);
+    if (resp.codigo === 401 && /JWT|token/i.test(resp.cuerpo) && credencialesDe(srv)) {
       sesion = await obtenerToken(srv, true);
-      if (sesion.token) r = await consultar(sesion.token);
+      if (sesion.token) resp = await consultar(sesion.token, rutaConsulta);
     }
+    return resp;
+  };
+  try {
+    // Primero el contrato de health (el gateway lo reenvía a /api/health/detalle de la API).
+    const rutaContrato = `/${servicio}/health/detalle`;
+    const rc = await pedirConSesion(rutaContrato);
+    const jc = leerJson(rc.cuerpo);
+    if (esContrato(jc)) {
+      return resultadoContrato(rc, jc, ctx, {
+        ms: rc.ms, codigo: rc.codigo, ruta: `${rutaContrato} (gateway :${puerto})`, cuerpo: rc.cuerpo.slice(0, 300),
+      });
+    }
+    r = await pedirConSesion(ruta);
   } catch (e) {
     // No respondió el gateway mismo: el diagnóstico apunta a él, no a la API de atrás.
     const nombreGw = descubrimiento.tipoDe(srv) === 'proxy' ? 'el proxy (APIGatewayFila)' : 'APIGatewayFila';
@@ -245,7 +395,26 @@ function guardarResultado(clave, etiqueta, r, srv) {
   }
   if (r.fallaMomentanea && etiqueta) registrarEvento(`${etiqueta}  falla momentánea (${r.fallaMomentanea}), se recuperó al reintentar${nota}`);
   const ultimoOk = r.nivel === 'ok' ? Date.now() : previo?.ultimoOk ?? null;
-  estado.set(clave, { ...r, historial, ultimoOk, desde: cambio ? Date.now() : previo.desde, revisado: Date.now() });
+
+  // Reinicios: con el contrato de health se sabe cuándo arrancó el proceso. Si cambió entre
+  // dos revisiones, la API se reinició (a propósito o porque se cayó y pm2/Docker la levantó).
+  let reinicios = previo?.reinicios || 0;
+  let ultimoReinicio = previo?.ultimoReinicio || null;
+  const inicioPrevio = previo?.contrato?.iniciado;
+  const inicioNuevo = r.contrato?.iniciado;
+  if (inicioPrevio && inicioNuevo && inicioPrevio !== inicioNuevo) {
+    reinicios += 1;
+    ultimoReinicio = inicioNuevo;
+    if (etiqueta) {
+      const e = diagnostico.reiniciada(inicioPrevio, inicioNuevo, { nombre: r.contrato.servicio });
+      registrarEvento(`${etiqueta}  ${e.titulo} — ${e.causa} [${e.tecnico}]`);
+    }
+  }
+
+  estado.set(clave, {
+    ...r, historial, ultimoOk, reinicios, ultimoReinicio,
+    desde: cambio ? Date.now() : previo.desde, revisado: Date.now(),
+  });
 }
 
 // Servidores a vigilar: los de servidores.json más el de demostración si está activo.
@@ -272,6 +441,7 @@ function itemsDe(srv) {
       etiqueta: `[${srv.nombre}] gateway/${servicio}`,
       revisar: () => revisarServicioGateway(srv, servicio),
     })),
+    ...itemMongo(srv),
   ];
 }
 
@@ -319,6 +489,7 @@ async function ejecutarRevision() {
   revisando = true;
   try {
     config = leerConfig(); // así los cambios a servidores.json se toman sin reiniciar
+    olvidarMongoApagado();
     const credNuevas = leerCredenciales();
     if (JSON.stringify(credNuevas) !== JSON.stringify(credenciales)) tokens.clear();
     credenciales = credNuevas;
@@ -333,6 +504,7 @@ async function ejecutarRevision() {
     ultimaRevision = Date.now();
     await almacen.guardarCiclo(ultimaRevision, registro);
     cacheCiclos.clear();
+    await actualizarSlo();
     await evaluarIncidentes();
   } catch (e) {
     console.error('Error en revisión:', e);
@@ -439,7 +611,69 @@ function agruparFallas() {
       });
     }
   }
+
+  // SLO: APIs cuyo presupuesto de error del mes está en riesgo o agotado.
+  for (const f of sloActual?.apis || []) {
+    const srv = config.servidores.find((s) => s.nombre === f.servidor);
+    if (!srv || enMantencion(srv)) continue;
+    const inc = slo.incidenteSlo(f);
+    if (inc) grupos.set(`${f.servidor}|slo:${f.id}`, { servidor: f.servidor, persistir: true, ...inc });
+  }
   return grupos;
+}
+
+// ---- SLO y presupuesto de error (ver slo.js) ---------------------------------
+
+const SLO_POR_DEFECTO = 99.5;
+const zonaSlo = () => config.zonaHoraria || 'America/Santiago';
+let sloActual = null;
+const cacheSloMeses = new Map(); // "2026-10" -> { en, datos } para meses anteriores
+
+// Nombre del servicio sin el puerto, para buscar su objetivo ("APITicket", "MongoDB"...).
+function servicioDe(nombreServidor, id) {
+  if (id === 'mongo') return 'MongoDB';
+  if (id.startsWith('gw:')) return serviciosGateway[id.slice(3)] || id.slice(3);
+  const srv = config.servidores.find((s) => s.nombre === nombreServidor) || {};
+  return definicionPuerto(srv, Number(id)).nombre;
+}
+
+// Objetivo de una API: por servicio > por servidor > por defecto.
+// servidores.json: "slo": { "objetivo": 99.5, "porServicio": { "APITicket": 99.9 }, "porServidor": { "torax": 99.9 } }
+function objetivoDe(nombreServidor, id) {
+  const c = config.slo || {};
+  const v = c.porServicio?.[servicioDe(nombreServidor, id)] ?? c.porServidor?.[nombreServidor] ?? c.objetivo ?? SLO_POR_DEFECTO;
+  return Math.min(Math.max(Number(v) || SLO_POR_DEFECTO, 50), 99.999);
+}
+
+async function calcularSloMes(mes) {
+  const ventana = slo.ventanaMes(mes, zonaSlo());
+  const ciclos = await almacen.leerCiclos(ventana.desde, ventana.hasta);
+  return slo.calcular(ciclos, {
+    ventana, intervaloMs: config.intervaloSegundos * 1000, objetivoDe, nombreDe: nombreApi,
+  });
+}
+
+async function actualizarSlo() {
+  if (!almacen.conectado()) return;
+  try {
+    sloActual = await calcularSloMes(null);
+  } catch (e) {
+    console.error('Error calculando el SLO:', e.message);
+  }
+}
+
+// Mes pedido (o el actual). Los meses anteriores se cachean 15 min.
+async function sloDe(mes) {
+  const actual = slo.ventanaMes(null, zonaSlo()).mes;
+  if (!mes || mes === actual) {
+    if (!sloActual) await actualizarSlo();
+    return sloActual;
+  }
+  const c = cacheSloMeses.get(mes);
+  if (c && Date.now() - c.en < 15 * 60e3) return c.datos;
+  const datos = await calcularSloMes(mes);
+  cacheSloMeses.set(mes, { en: Date.now(), datos });
+  return datos;
 }
 
 async function evaluarIncidentes() {
@@ -498,28 +732,38 @@ function construirEstado({ conIncidentes = true } = {}) {
       apis: [
         ...srv.puertos.map((puerto) => {
           const def = definicionPuerto(srv, puerto);
+          const est = estado.get(`${srv.host}:${puerto}`) || PENDIENTE;
           return {
             id: `${puerto}`,
             puerto,
-            nombre: def.nombre,
+            // Con contrato de health manda el nombre que reporta la propia API (no el catálogo).
+            nombre: est.contrato?.servicio || def.nombre,
+            nombreCatalogo: def.nombre,
             tipo: def.tipo || 'api',
-            ...(estado.get(`${srv.host}:${puerto}`) || PENDIENTE),
+            ...est,
           };
         }),
-        ...(srv.gateway?.servicios || []).map((servicio) => ({
-          id: `gw:${servicio}`,
-          puerto: srv.gateway.puerto,
-          servicio,
-          nombre: serviciosGateway[servicio] || servicio,
-          tipo: 'gateway',
-          ...(estado.get(`${srv.host}:gw:${servicio}`) || PENDIENTE),
-        })),
+        ...(srv.gateway?.servicios || []).map((servicio) => {
+          const est = estado.get(`${srv.host}:gw:${servicio}`) || PENDIENTE;
+          const nombreCatalogo = serviciosGateway[servicio] || servicio;
+          return {
+            id: `gw:${servicio}`,
+            puerto: srv.gateway.puerto,
+            servicio,
+            nombre: est.contrato?.servicio || nombreCatalogo,
+            nombreCatalogo,
+            tipo: 'gateway',
+            ...est,
+          };
+        }),
+        ...apiMongo(srv),
       ],
     })),
   };
 }
 
 function nombreApi(nombreServidor, id) {
+  if (id === 'mongo') return 'MongoDB';
   if (id.startsWith('gw:')) {
     const servicio = id.slice(3);
     return `${serviciosGateway[servicio] || servicio} /${servicio}`;
@@ -610,6 +854,11 @@ function resumenServidor(srv) {
     deriva: s?.deriva || null,
     directas: srv.puertos.length,
     viaGateway: srv.gateway?.servicios.length ?? 0,
+    mongo: {
+      activo: !!mongoDe(srv),
+      puerto: puertoMongo(srv.mongo?.puerto),
+      host: String(srv.mongo?.host || '').trim() || srv.host,
+    },
     ok: vigiladas.filter((a) => a.nivel === 'ok').length,
     caidas: vigiladas.filter((a) => a.nivel === 'error').length,
     avisos: vigiladas.filter((a) => a.nivel === 'aviso').length,
@@ -632,6 +881,33 @@ async function detectarYAplicar(srv) {
       : `El puerto ${puertoGateway} no responde: solo se vigilan las APIs directas.`;
   }
   return null;
+}
+
+// POST /api/servidores/mongo { nombre, activo, puerto?, host? }
+// activo false deja la sonda apagada y conserva puerto/host por si se vuelve a encender.
+async function cambiarMongo(req, res) {
+  const cuerpo = await leerCuerpo(req);
+  const cfg = leerConfig();
+  const srv = cfg.servidores.find((s) => s.nombre === cuerpo.nombre);
+  if (!srv) return responder(res, 404, { error: 'Servidor no encontrado' });
+
+  const previo = srv.mongo || {};
+  const puerto = puertoMongo(cuerpo.puerto ?? previo.puerto);
+  const host = String(cuerpo.host ?? previo.host ?? '').trim();
+  srv.mongo = { activo: !!cuerpo.activo, puerto };
+  if (host && host !== srv.host) srv.mongo.host = host;
+
+  descubrimiento.guardarConfig(cfg);
+  config = cfg;
+  if (srv.mongo.activo) {
+    const destino = mongoDe(srv);
+    registrarEvento(`[${srv.nombre}] monitoreo de MongoDB activado (${destino.host}:${destino.puerto})`);
+    await revisarServidor(srv);
+  } else {
+    estado.delete(`${srv.host}:mongo`);
+    registrarEvento(`[${srv.nombre}] monitoreo de MongoDB desactivado`);
+  }
+  return responder(res, 200, { servidor: resumenServidor(srv) });
 }
 
 async function administrarServidores(req, res, url) {
@@ -679,6 +955,11 @@ async function administrarServidores(req, res, url) {
     registrarEvento(`[${nombre}] servidor agregado (${descubrimiento.TIPOS[tipo].nombre}, ${srv.puertos.length} puertos${srv.gateway ? `, ${srv.gateway.servicios.length} servicios vía :${srv.gateway.puerto}` : ''})`);
     await revisarServidor(srv);
     return responder(res, 201, { servidor: resumenServidor(srv), aviso });
+  }
+
+  // POST /api/servidores/mongo { nombre, activo } -> ping a MongoDB de ese servidor
+  if (req.method === 'POST' && url.pathname === '/api/servidores/mongo') {
+    return cambiarMongo(req, res);
   }
 
   // POST /api/servidores/redetectar { nombre } -> volver a detectar sus APIs
@@ -779,7 +1060,38 @@ function enviarPagina(res, archivo) {
   fs.createReadStream(path.join(__dirname, 'public', archivo)).pipe(res);
 }
 
-const servidor = http.createServer(async (req, res) => {
+// Ruta del JSON: absoluta se usa tal cual; relativa, desde esta carpeta.
+function rutaConfig(valor) {
+  return path.isAbsolute(valor) ? valor : path.join(__dirname, valor);
+}
+
+// Certificado y clave privada del dashboard (servidores.json → "ssl").
+// null: "ssl.activo" no es true y el panel sigue en HTTP.
+function opcionesSsl() {
+  const ssl = config.ssl;
+  if (!ssl || ssl.activo !== true) return null;
+  if (!ssl.certificado || !ssl.clave) {
+    console.error(MSG_SSL_INCOMPLETO);
+    process.exit(1);
+  }
+  try {
+    const opciones = {
+      cert: fs.readFileSync(rutaConfig(ssl.certificado)),
+      key: fs.readFileSync(rutaConfig(ssl.clave)),
+    };
+    if (ssl.ca) opciones.ca = fs.readFileSync(rutaConfig(ssl.ca));
+    if (ssl.frase) opciones.passphrase = String(ssl.frase);
+    return opciones;
+  } catch (e) {
+    console.error(`${MSG_SSL_LECTURA} ${e.message}`);
+    process.exit(1);
+  }
+}
+
+const opcionesHttps = opcionesSsl();
+const servidor = (opcionesHttps ? https : http).createServer(
+  ...(opcionesHttps ? [opcionesHttps] : []),
+  async (req, res) => {
   try {
     if (!autorizado(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Monitor de APIs", charset="UTF-8"' });
@@ -832,7 +1144,53 @@ const servidor = http.createServer(async (req, res) => {
 
     if (url.pathname.startsWith('/api/servidores')) return await administrarServidores(req, res, url);
 
+    // Pestaña "SLO": objetivo, presupuesto de error y burn rate por API (?mes=2026-11; sin mes = el actual).
+    if (url.pathname === '/api/slo' || url.pathname === '/api/slo.csv') {
+      const mes = url.searchParams.get('mes');
+      if (mes && !/^\d{4}-\d{2}$/.test(mes)) return responder(res, 400, { error: 'mes debe ser AAAA-MM' });
+      let datos = almacen.conectado() ? await sloDe(mes) : null;
+      if (config.demo) {
+        const ventana = slo.ventanaMes(mes, zonaSlo());
+        const deDemo = slo.calcular(demo.ciclosSlo(ventana, config.intervaloSegundos * 1000), {
+          ventana, intervaloMs: config.intervaloSegundos * 1000, objetivoDe, nombreDe: nombreApi,
+        });
+        datos = datos
+          ? { ...datos, apis: [...deDemo.apis, ...datos.apis], servidores: [...deDemo.servidores, ...datos.servidores] }
+          : deDemo;
+      }
+      if (!datos) return responder(res, 503, { error: 'Sin conexión a MongoDB: no hay historial para calcular el SLO.' });
+      if (url.pathname === '/api/slo.csv') {
+        res.writeHead(200, {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="sla-${datos.ventana.mes}.csv"`,
+        });
+        return res.end(slo.aCsv(datos));
+      }
+      return enviarJson(res, {
+        ...datos,
+        objetivoPorDefecto: config.slo?.objetivo ?? SLO_POR_DEFECTO,
+        objetivosConfigurados: { porServicio: config.slo?.porServicio || {}, porServidor: config.slo?.porServidor || {} },
+        mesActual: slo.ventanaMes(null, zonaSlo()).mes,
+      });
+    }
+
+    // Pestaña "Test de APIs": probar ahora una API ({ servidor, id }) o un servidor completo ({ servidor }).
+    if (url.pathname === '/api/test-apis/probar' && req.method === 'POST') {
+      const { servidor: nombre, id } = await leerCuerpo(req);
+      const srv = servidoresActivos().find((s) => s.nombre === nombre);
+      if (!srv) return responder(res, 404, { error: 'Servidor no encontrado' });
+      const items = itemsDe(srv).filter((it) => !id || it.id === id);
+      if (!items.length) return responder(res, 404, { error: 'API no encontrada en ese servidor' });
+      const t0 = Date.now();
+      await enParalelo(items.map((it) => async () => guardarResultado(it.clave, it.etiqueta, await it.revisar(), srv)), 20);
+      await evaluarIncidentes();
+      const s = construirEstado({ conIncidentes: false }).servidores.find((x) => x.nombre === nombre);
+      return responder(res, 200, { servidor: nombre, ms: Date.now() - t0, apis: s.apis.filter((a) => !id || a.id === id) });
+    }
+
     if (url.pathname === '/servidores') return enviarPagina(res, 'servidores.html');
+    if (url.pathname === '/test-apis') return enviarPagina(res, 'test-apis.html');
+    if (url.pathname === '/slo') return enviarPagina(res, 'slo.html');
     if (url.pathname === '/dashboard') return enviarPagina(res, 'dashboard.html');
     if (url.pathname === '/resumen') return enviarPagina(res, 'resumen.html');
     if (url.pathname === '/' || url.pathname === '/index.html') return enviarPagina(res, 'index.html');
@@ -860,7 +1218,8 @@ async function conectarMongo() {
   const mongoUri = process.env.MONGO_URI || config.mongoUri;
   if (!mongoUri) return console.error('Falta "mongoUri" en servidores.json: el historial no se guardará.');
   try {
-    await almacen.conectar({ mongoUri, mongoDb: config.mongoDb, retencionDias: config.retencionDias || 30 });
+    // El SLO es por mes calendario: se guardan al menos 35 días para tener siempre el mes completo.
+    await almacen.conectar({ mongoUri, mongoDb: config.mongoDb, retencionDias: Math.max(config.retencionDias || 30, 35) });
     await incidentes.cargar();
     console.log(`Historial en MongoDB: ${mongoUri.replace(/\/\/[^@/]*@/, '//***@')} base "${config.mongoDb || 'monitorAPIs'}"`);
   } catch (e) {
@@ -869,8 +1228,9 @@ async function conectarMongo() {
 }
 
 const puertoDashboard = Number(process.env.PUERTO_DASHBOARD) || config.puertoDashboard;
+const protocolo = opcionesHttps ? 'https' : 'http';
 servidor.listen(puertoDashboard, () => {
-  console.log(`Monitor de APIs en http://localhost:${puertoDashboard}`);
+  console.log(`Monitor de APIs en ${protocolo}://localhost:${puertoDashboard}`);
   console.log(`Revisando ${config.servidores.length} servidores cada ${config.intervaloSegundos}s. Cambios de estado en logs/eventos.log\n`);
 });
 

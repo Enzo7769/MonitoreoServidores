@@ -36,9 +36,13 @@ funcionando aunque nadie tenga la página abierta.
    pm2 logs monitor-apis --lines 20
    ```
    En `ecosystem.config.js` el monitor usa `mongodb://localhost:27017` (mismo servidor).
-3. Entra a `http://test.dts.lat:8090` — o, si el puerto no está abierto en el firewall,
+3. Para servir el panel por HTTPS, en `servidores.json` pon `"ssl.activo": true` y copia
+   el certificado y la clave privada a las rutas de `ssl`
+   (`certs/certificado.pem` y `certs/clave.key`, o las rutas absolutas que pongas ahí).
+   El certificado tiene que corresponder a `test.dts.lat`. Con `"activo": false` el panel queda en HTTP.
+4. Entra a `https://test.dts.lat:8090` (o `http://` si el SSL está apagado) — o, si el puerto no está abierto en el firewall,
    por un túnel SSH de MobaXterm (Tunneling → puerto local 8090 → `localhost:8090` del servidor)
-   y abre `http://localhost:8090` en tu PC.
+   y abre `https://localhost:8090` en tu PC.
 
 **Corre una sola instancia.** Si el monitor también está abierto en tu PC (`iniciar-monitor.bat`),
 ciérralo: si no, cada revisión se guarda dos veces.
@@ -51,6 +55,7 @@ pm2 logs monitor-apis
 node descubrir.js            # volver a detectar las APIs de cada servidor
 ```
 Los cambios en `servidores.json` y `credenciales.json` se toman en la siguiente revisión, sin reiniciar.
+El puerto (`puertoDashboard`) y el SSL se leen solo al arrancar: después de cambiarlos, `pm2 restart monitor-apis`.
 
 ## Configuración (`servidores.json`)
 
@@ -59,6 +64,8 @@ Los cambios en `servidores.json` y `credenciales.json` se toman en la siguiente 
 | `intervaloSegundos` | Cada cuánto revisa (900 = 15 min) |
 | `timeoutMs` / `lentoMs` | Espera máxima por API / sobre cuánto se marca "lenta" |
 | `puertoDashboard` | Puerto web del monitor (8090) |
+| `ssl.activo` | `true` sirve el panel por HTTPS; `false` lo deja en HTTP. El certificado y la clave solo se leen si está en `true`. |
+| `ssl.certificado` / `ssl.clave` | Rutas del certificado y de la clave privada. Relativas a la carpeta del proyecto, o absolutas. `ssl.ca` (cadena) y `ssl.frase` (si la clave está cifrada) son opcionales. |
 | `retencionDias` | Días que se guardan las revisiones en MongoDB |
 | `zonaHoraria` | Zona para cortar los días del resumen diario |
 | `mongoUri` / `mongoDb` | Conexión a MongoDB (la variable `MONGO_URI` tiene prioridad) |
@@ -66,6 +73,24 @@ Los cambios en `servidores.json` y `credenciales.json` se toman en la siguiente 
 | `intervaloFallaSegundos` | Mientras haya caídas, cada cuánto se revisan solo esas (por defecto 60) |
 | `sslAvisoDias` / `sslRevisarHoras` | Avisar si un certificado vence en menos de N días (30) / cada cuánto revisarlos (6 h) |
 | `demo` | Muestra el servidor simulado "Demo" (no se guarda en MongoDB) |
+| `mongo` (en cada servidor) | Ping directo a MongoDB de ese servidor. Solo corre si `"activo": true`. Por defecto apagado (sin el campo, o `"activo": false`). Puerto 27017 si no se indica otro. Se enciende o apaga en la pestaña Servidores. |
+| `slo` | Objetivos de disponibilidad mensual. Ej.: `{ "objetivo": 99.5, "porServicio": { "APITicket": 99.9 }, "porServidor": { "torax": 99.9 } }`. Prioridad: por servicio > por servidor > `objetivo` (99,5 si no se indica). |
+
+## SLO y presupuesto de error (pestaña "SLO / SLA")
+
+- **Objetivo (SLO):** disponibilidad que debe tener cada API en el **mes calendario** (zona `zonaHoraria`).
+- **Presupuesto de error:** la caída que permite el objetivo. 99,5 % en 30 días = 3 h 36 min; 99,9 % = 43 min.
+  Cada revisión con falla gasta el tiempo que duró (hasta la siguiente revisión).
+- **Burn rate:** velocidad de gasto. 1× = se agota justo a fin de mes. Alertas (generan incidentes "SLO"):
+  - **Consumo muy rápido:** ≥ 14,4× en la última hora y la API sigue fallando.
+  - **Consumo rápido:** ≥ 6× en las últimas 6 h.
+  - **No alcanza el mes:** ≥ 1× en los últimos 3 días y la proyección supera el 100 %.
+  - **Incumplido:** presupuesto del mes agotado.
+- **No descuentan presupuesto:** mantenciones, servicios "sin acceso" y las revisiones en que fallaron a la vez
+  la mayoría de los servidores (≥ 60 %, al menos 3) y ≥ 20 % de todas las APIs: eso es casi seguro un corte de red
+  del propio monitor, no de las APIs.
+- **Informe SLA:** botón "Descargar informe SLA (CSV)" o `/api/slo.csv?mes=AAAA-MM`.
+- Con el SLO mensual, MongoDB guarda al menos **35 días** de revisiones (aunque `retencionDias` sea menor).
 
 ## Cómo decide (fase 1)
 

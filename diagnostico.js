@@ -171,4 +171,78 @@ function servicioRetirado(ctx) {
     sugerencia: `Si fue a propósito, usa "Re-detectar" en la pestaña Servidores para actualizar la lista.` };
 }
 
-module.exports = { deRed, deHttp, lenta, limitada, noSocketIO, loginFallido, servicioRetirado };
+// Ping directo a MongoDB (solo si el servidor lo tiene activado).
+// Los fallos de red usan los mismos tipos que una API (PUERTO_CERRADO, TIMEOUT_CONEXION, …)
+// para que un servidor entero caído siga contando como un solo incidente.
+function deMongo(error, ctx) {
+  const texto = `${error.code || ''} ${error.message || ''} ${error.cause?.code || ''}`;
+  const codigo = ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ECONNRESET']
+    .find((c) => texto.includes(c)) || error.code || 'error';
+  const tecnico = `mongodb://${ctx.host}:${ctx.puerto} ping → ${codigo}`;
+  const dondeMongo = `${ctx.host}:${ctx.puerto}`;
+
+  if (codigo === 'ECONNREFUSED') {
+    return { tipo: 'PUERTO_CERRADO', tecnico, titulo: 'MongoDB no acepta conexiones',
+      causa: `Nada escucha en ${dondeMongo}, o MongoDB solo acepta conexiones locales (127.0.0.1).`,
+      sugerencia: `En ${ctx.host} revisa "systemctl status mongod". Si bindIp es 127.0.0.1, este monitor no puede llegar desde afuera.` };
+  }
+  if (codigo === 'ETIMEDOUT') {
+    return { tipo: 'TIMEOUT_CONEXION', tecnico, titulo: 'MongoDB no responde',
+      causa: `No hubo respuesta de ${dondeMongo} en ${seg(ctx.timeoutMs)}: un firewall bloquea el puerto, o el servidor está apagado.`,
+      sugerencia: `Confirma que MongoDB esté arriba y que el puerto ${ctx.puerto} esté abierto hacia el monitor.` };
+  }
+  if (codigo === 'ENOTFOUND' || codigo === 'EAI_AGAIN') {
+    return { tipo: 'DNS', tecnico, titulo: 'El dominio de MongoDB no resuelve',
+      causa: `${ctx.host} no se encuentra en el DNS.`,
+      sugerencia: `Revisa el host configurado para el monitoreo de MongoDB.` };
+  }
+  if (codigo === 'EHOSTUNREACH' || codigo === 'ENETUNREACH') {
+    return { tipo: 'INALCANZABLE', tecnico, titulo: 'MongoDB inalcanzable',
+      causa: `No hay ruta de red hasta ${ctx.host}.`,
+      sugerencia: `Verifica que la máquina esté encendida y con red.` };
+  }
+  return { tipo: 'MONGO_SONDA', tecnico, titulo: 'MongoDB no respondió al ping',
+    causa: `El ping a ${dondeMongo} falló: ${error.message || codigo}.`,
+    sugerencia: `Revisa el servicio mongod y que el puerto ${ctx.puerto} sea el correcto.` };
+}
+
+// La API respondió con el contrato de health (dts-health/1) diciendo que está
+// "caido" o "degradado": el diagnóstico sale de lo que ella misma reporta.
+function deContrato(datos, codigo, ctx) {
+  const deps = Object.entries(datos.dependencias || {});
+  const caidas = deps.filter(([, d]) => d.estado === 'caido');
+  const degradadas = deps.filter(([, d]) => d.estado === 'degradado');
+  const tecnico = `GET ${donde(ctx)}${ctx.viaGateway ? '/health/detalle' : ctx.ruta || ''} → HTTP ${codigo} · estado "${datos.estado}"`
+    + deps.map(([n, d]) => ` · ${n}: ${d.estado}${d.detalle ? ` (${d.detalle})` : ''}`).join('');
+
+  const mongo = datos.dependencias?.mongo;
+  if (mongo && mongo.estado === 'caido') {
+    return { tipo: 'MONGO', tecnico, titulo: 'Base de datos no disponible',
+      causa: `${ctx.nombre} informa que no tiene conexión con MongoDB (${mongo.detalle}). La API responde, pero no puede leer ni guardar datos.`,
+      sugerencia: 'Revisa que MongoDB esté arriba ("systemctl status mongod" o su contenedor) y la cadena de conexión del .env de la API; luego reinicia la API si no se reconecta sola.' };
+  }
+  if (mongo && mongo.estado === 'degradado') {
+    return { tipo: 'MONGO_CONECTANDO', tecnico, titulo: 'Reconectando a MongoDB',
+      causa: `${ctx.nombre} está intentando conectarse a MongoDB (${mongo.detalle}): acaba de arrancar o perdió la conexión hace poco.`,
+      sugerencia: 'Si dura más de un par de minutos, revisa MongoDB y la red entre la API y la base.' };
+  }
+  const lista = (ds) => ds.map(([n, d]) => `${n} (${d.detalle || d.estado})`).join(', ');
+  if (caidas.length) {
+    return { tipo: 'DEPENDENCIA', tecnico, titulo: `Dependencia caída: ${caidas.map(([n]) => n).join(', ')}`,
+      causa: `${ctx.nombre} informa que no puede usar: ${lista(caidas)}.`,
+      sugerencia: `Revisa esos servicios; ${ctx.nombre} depende de ellos.` };
+  }
+  return { tipo: 'DEGRADADO', tecnico, titulo: 'Funcionando con problemas',
+    causa: `${ctx.nombre} responde, pero informa problemas en: ${lista(degradadas) || 'sus dependencias'}.`,
+    sugerencia: `Revisa los logs de ${ctx.nombre}.` };
+}
+
+// Se detectó un reinicio entre dos revisiones (cambió la hora de inicio del proceso).
+function reiniciada(previoInicio, nuevoInicio, ctx) {
+  return { tipo: 'REINICIO', tecnico: `inicio del proceso: ${previoInicio} → ${nuevoInicio}`,
+    titulo: 'Se reinició',
+    causa: `${ctx.nombre} se reinició entre dos revisiones. Si nadie la reinició a propósito, probablemente se cayó y pm2 o Docker la levantó de nuevo.`,
+    sugerencia: `Revisa en "pm2 logs" o "docker logs" el error justo antes de ${new Date(nuevoInicio).toLocaleString('es-CL')}.` };
+}
+
+module.exports = { deRed, deHttp, lenta, limitada, noSocketIO, loginFallido, servicioRetirado, deMongo, deContrato, reiniciada };

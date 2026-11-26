@@ -48,6 +48,7 @@
   button:disabled { opacity: .6; cursor: wait; }
   .primario { background: var(--accent); color: #fff; }
   .secundario { background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 6px 10px; font-size: 13px; }
+  .mongo-on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
   .peligro { background: transparent; color: var(--error); border: 1px solid var(--error); padding: 6px 10px; font-size: 13px; }
   .peligro.lleno { background: var(--error); color: #fff; padding: 10px 16px; font-size: 14px; }
   .vista-previa { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 19px; }
@@ -94,7 +95,7 @@
 <body>
 <header>
   <h1>Monitor de APIs</h1>
-  <nav><a href="/resumen">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/servidores" class="activa">Servidores</a></nav>
+  <nav><a href="/resumen">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/slo">SLO / SLA</a><a href="/servidores" class="activa">Servidores</a><a href="/test-apis">Test de APIs</a></nav>
 </header>
 
 <main>
@@ -127,10 +128,10 @@
       <h2 style="margin:0">Servidores monitoreados <span id="cantidad" style="color:var(--muted);font-weight:400"></span></h2>
       <button class="secundario" id="btnDemo" style="margin-left:auto" title="Un servidor simulado con fallas, para ver cómo se muestran los errores. No se guarda en MongoDB.">Mostrar servidor de demostración</button>
     </div>
-    <p class="sub">"Re-detectar" vuelve a buscar sus APIs (por ejemplo, si se instaló una nueva). Eliminar deja de vigilarlo; su historial en MongoDB se conserva.</p>
+    <p class="sub">"Re-detectar" vuelve a buscar sus APIs (por ejemplo, si se instaló una nueva). MongoDB está apagado en todos hasta que lo actives en esa columna. Eliminar deja de vigilarlo; su historial se conserva.</p>
     <div class="tabla"><table>
-      <thead><tr><th>Servidor</th><th>Tipo</th><th class="num">APIs directas</th><th class="num">Vía gateway/proxy</th><th>Estado actual</th><th>SSL</th><th></th></tr></thead>
-      <tbody id="lista"><tr><td colspan="7" style="color:var(--muted)">Cargando…</td></tr></tbody>
+      <thead><tr><th>Servidor</th><th>Tipo</th><th class="num">APIs directas</th><th class="num">Vía gateway/proxy</th><th>Estado actual</th><th>SSL</th><th>MongoDB</th><th></th></tr></thead>
+      <tbody id="lista"><tr><td colspan="8" style="color:var(--muted)">Cargando…</td></tr></tbody>
     </table></div>
   </section>
 </main>
@@ -219,6 +220,16 @@ function derivaHtml(s) {
     <button class="secundario" data-vigilar="${esc(s.nombre)}" data-faltantes="${datos}" title="Sumarlas al monitoreo: si no están corriendo, aparecerán en rojo">Vigilar</button></div>`;
 }
 
+function mongoHtml(s) {
+  if (s.demo) return '<span class="estado pend">—</span>';
+  const on = !!s.mongo?.activo;
+  const puerto = s.mongo?.puerto || 27017;
+  const titulo = on
+    ? `Se hace ping a MongoDB en ${s.mongo.host}:${puerto}. Clic para apagarlo.`
+    : 'Apagado: no se revisa MongoDB de este servidor. Clic para activarlo (puerto 27017).';
+  return `<button class="secundario${on ? ' mongo-on' : ''}" data-mongo="${esc(s.nombre)}" data-activo="${on ? '1' : '0'}" title="${esc(titulo)}">${on ? `Activo :${puerto}` : 'Apagado'}</button>`;
+}
+
 function estadoTexto(s) {
   if (s.mantencion) return `<span class="estado mant">🔧 Mantención hasta ${hora(s.mantencion.hasta)}</span>`;
   if (!s.total) return '<span class="estado pend">Esperando revisión</span>';
@@ -243,6 +254,7 @@ async function cargarLista() {
         <td class="num">${s.viaGateway || '—'}</td>
         <td>${estadoTexto(s)}${derivaHtml(s)}</td>
         <td>${sslTexto(s.ssl)}</td>
+        <td>${mongoHtml(s)}</td>
         <td><div class="acciones">
           ${s.demo ? '<button class="secundario" data-quitar-demo>Quitar demo</button>' : `
           ${s.mantencion
@@ -251,9 +263,9 @@ async function cargarLista() {
           <button class="secundario" data-redetectar="${esc(s.nombre)}">Re-detectar</button>
           <button class="peligro" data-eliminar="${esc(s.nombre)}" data-host="${esc(s.host)}">Eliminar</button>`}
         </div></td>
-      </tr>`).join('') || '<tr><td colspan="7" style="color:var(--muted)">No hay servidores.</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="8" style="color:var(--muted)">No hay servidores.</td></tr>';
   } catch (e) {
-    $('lista').innerHTML = `<tr><td colspan="7" style="color:var(--error)">${esc(e.message)}</td></tr>`;
+    $('lista').innerHTML = `<tr><td colspan="8" style="color:var(--error)">${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -290,6 +302,20 @@ $('btnDemo').addEventListener('click', () => cambiarDemo(!demoActivo));
 
 $('lista').addEventListener('click', async (e) => {
   if (e.target.closest('[data-quitar-demo]')) return cambiarDemo(false);
+
+  const mongoBtn = e.target.closest('[data-mongo]');
+  if (mongoBtn) {
+    const activo = mongoBtn.dataset.activo !== '1';
+    mongoBtn.disabled = true;
+    mongoBtn.textContent = activo ? 'Revisando…' : 'Apagando…';
+    try {
+      const { servidor: s } = await api('POST', '/api/servidores/mongo', { nombre: mongoBtn.dataset.mongo, activo });
+      mensaje(activo && s.caidas ? 'aviso' : 'ok', activo
+        ? `✓ MongoDB de <b>${esc(cap(s.nombre))}</b> quedó activo en :${s.mongo.puerto}.${s.caidas ? ' Hay fallas: míralas en Estado en vivo.' : ''}`
+        : `✓ MongoDB de <b>${esc(cap(s.nombre))}</b> quedó apagado.`);
+    } catch (err) { mensaje('error', `✗ ${esc(err.message)}`); }
+    return cargarLista();
+  }
 
   const vig = e.target.closest('[data-vigilar]');
   if (vig) {

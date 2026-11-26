@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test de APIs</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
+    --ok: #16a34a; --ok-bg: #dcfce7; --aviso: #b45309; --aviso-bg: #fef3c7;
+    --error: #dc2626; --error-bg: #fee2e2; --accent: #2563eb; --accent-bg: #eff6ff; --gris-bg: #f1f2f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --text: #e5e7eb; --muted: #9ca3af; --line: #2a2f3a;
+      --ok: #22c55e; --ok-bg: #12301f; --aviso: #f59e0b; --aviso-bg: #3a2a0a;
+      --error: #f87171; --error-bg: #3b1414; --accent: #60a5fa; --accent-bg: #172235; --gris-bg: #20242c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); padding: 0 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 12px 0; }
+  nav { display: flex; gap: 4px; align-self: stretch; overflow-x: auto; }
+  nav a { display: flex; align-items: center; padding: 0 14px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
+  nav a.activa { color: var(--accent); border-bottom-color: var(--accent); }
+  .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 20px; display: grid; gap: 20px; }
+  .intro { color: var(--muted); margin: 0; }
+  .intro code { background: var(--gris-bg); padding: 1px 6px; border-radius: 4px; color: var(--text); }
+
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi .etiqueta { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+  .kpi .valor { font-size: 28px; font-weight: 700; margin: 4px 0 2px; }
+  .kpi .valor small { font-size: 15px; color: var(--muted); font-weight: 600; }
+  .kpi .nota { font-size: 12px; color: var(--muted); }
+  .barra { height: 6px; border-radius: 3px; background: var(--gris-bg); overflow: hidden; margin-top: 6px; }
+  .barra i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .sub { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+
+  .filtros { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .filtros select, .filtros input[type=search] { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+  .filtros input[type=search] { min-width: 220px; }
+  .filtros label { display: inline-flex; gap: 6px; align-items: center; }
+
+  button { border: 0; border-radius: 8px; padding: 7px 12px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .primario { background: var(--accent); color: #fff; }
+  .secundario { background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 4px 10px; font-size: 12.5px; }
+
+  .tabla { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 1050px; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.grupo td { background: var(--gris-bg); font-weight: 700; padding: 8px 10px; }
+  tr.grupo .host { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  tr.grupo .cobertura { float: right; font-weight: 600; color: var(--muted); font-size: 12.5px; }
+  tr.grupo button { margin-left: 10px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .api { font-weight: 600; }
+  .donde { color: var(--muted); font-weight: 400; }
+  .chico { display: block; font-size: 12px; color: var(--muted); }
+  .mono { font: 12px ui-monospace, Consolas, monospace; }
+
+  .estado { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; }
+  .estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+  .estado.ok { color: var(--ok); } .estado.aviso { color: var(--aviso); } .estado.error { color: var(--error); } .estado.pend, .estado.sinacceso { color: var(--muted); }
+  .etiqueta-contrato { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .etiqueta-contrato.si { background: var(--ok-bg); color: var(--ok); }
+  .etiqueta-contrato.no { background: var(--aviso-bg); color: var(--aviso); }
+  .etiqueta-contrato.na { background: var(--gris-bg); color: var(--muted); }
+  .dep.ok { color: var(--ok); } .dep.caido { color: var(--error); font-weight: 700; } .dep.degradado { color: var(--aviso); font-weight: 700; }
+  .reinicio { color: var(--aviso); font-weight: 700; }
+  .vacio { color: var(--muted); padding: 14px 0; }
+
+  .versiones { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .version { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .version.distinta { border-color: var(--aviso); background: var(--aviso-bg); }
+  .version h3 { margin: 0 0 6px; font-size: 14px; }
+  .version ul { margin: 0; padding-left: 18px; font-size: 12.5px; }
+  .version li { margin: 2px 0; }
+
+  dialog { border: 0; border-radius: 12px; padding: 0; width: min(760px, calc(100% - 32px)); background: var(--card); color: var(--text); box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialogo { padding: 20px 22px; }
+  .dialogo h3 { margin: 0 0 4px; }
+  .dialogo pre { background: var(--gris-bg); border-radius: 8px; padding: 12px; overflow: auto; max-height: 55vh; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+  .dialogo .botones { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+  @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { main { padding: 16px; } header { padding: 0 16px; } .meta { margin-left: 0; width: 100%; padding-bottom: 8px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor de APIs</h1>
+  <nav><a href="/resumen">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/slo">SLO / SLA</a><a href="/servidores">Servidores</a><a href="/test-apis" class="activa">Test de APIs</a></nav>
+  <span class="meta" id="meta">Cargando…</span>
+</header>
+
+<main>
+  <p class="intro">Resultado del <b>contrato de health</b> (<code>dts-health/1</code>) de cada API: lo que la propia API informa sobre sí misma —
+    si MongoDB le responde, qué versión y commit tiene desplegado, hace cuánto está arriba y si se reinició. Las APIs sin contrato
+    solo se revisan por su <code>/health</code> clásico.</p>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="card">
+    <h2>APIs por servidor</h2>
+    <p class="sub">"Probar" consulta la API en este momento (sin esperar la próxima revisión) y muestra la respuesta completa.</p>
+    <div class="filtros">
+      <select id="filtroServidor" aria-label="Servidor"><option value="">Todos los servidores</option></select>
+      <input type="search" id="buscar" placeholder="Buscar API…">
+      <label><input type="checkbox" id="soloProblemas"> Solo problemas</label>
+      <label><input type="checkbox" id="soloSinContrato"> Solo sin contrato</label>
+    </div>
+    <div class="tabla"><table>
+      <thead><tr>
+        <th>API</th><th>Contrato</th><th>Estado</th><th>MongoDB</th><th>Versión · commit</th>
+        <th class="num">Arriba hace</th><th class="num">Reinicios</th><th class="num">Memoria</th><th class="num">Respuesta</th><th></th>
+      </tr></thead>
+      <tbody id="filas"><tr><td colspan="10" class="vacio">Cargando…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Versiones desplegadas por servicio</h2>
+    <p class="sub">Qué commit corre cada servicio en cada servidor. Si un mismo servicio tiene commits distintos, algún servidor quedó con otra versión.</p>
+    <div class="versiones" id="versiones"></div>
+  </section>
+</main>
+
+<dialog id="dlgResultado">
+  <div class="dialogo">
+    <h3 id="resTitulo">Resultado</h3>
+    <p class="chico" id="resSub"></p>
+    <pre id="resJson"></pre>
+    <div class="botones"><button class="primario" id="resCerrar">Cerrar</button></div>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cap = (s) => String(s ?? '').charAt(0).toUpperCase() + String(s ?? '').slice(1);
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+let datos = null;
+
+function duracion(seg) {
+  if (seg == null) return '—';
+  if (seg < 3600) return `${Math.max(1, Math.round(seg / 60))} min`;
+  if (seg < 86400) return `${Math.round(seg / 3600)} h`;
+  return `${Math.round(seg / 86400)} d`;
+}
+function hace(ts) {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return `hace ${s} s`;
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+}
+
+// Las filas que interesan aquí: APIs HTTP (los WebSockets y el ping de Mongo no tienen contrato).
+const esWs = (a) => a.tipo === 'ws';
+const esMongo = (a) => a.tipo === 'mongo' || a.id === 'mongo';
+const tieneContrato = (a) => !!a.contrato;
+
+function apisDe(s) {
+  return s.apis.filter((a) => !esMongo(a));
+}
+
+function pintarKpis() {
+  const todas = datos.servidores.flatMap((s) => apisDe(s).filter((a) => !esWs(a) && a.nivel !== 'sinacceso'));
+  const con = todas.filter(tieneContrato);
+  const mongoOk = con.filter((a) => a.contrato.dependencias?.mongo?.estado === 'ok').length;
+  const mongoMal = con.filter((a) => ['caido', 'degradado'].includes(a.contrato.dependencias?.mongo?.estado)).length;
+  const reinicios = todas.reduce((n, a) => n + (a.reinicios || 0), 0);
+  const distintas = versionesPorServicio().filter((v) => v.commits.size > 1).length;
+  const pct = todas.length ? Math.round((con.length / todas.length) * 100) : 0;
+  const kpi = (etiqueta, valor, nota, extra = '') => `<div class="kpi"><div class="etiqueta">${etiqueta}</div><div class="valor">${valor}</div><div class="nota">${nota}</div>${extra}</div>`;
+  $('kpis').innerHTML =
+    kpi('APIs con contrato', `${con.length}<small> / ${todas.length}</small>`, `${pct} % de cobertura`, `<div class="barra"><i style="width:${pct}%"></i></div>`) +
+    kpi('MongoDB responde', mongoOk, 'según las propias APIs') +
+    kpi('MongoDB con problemas', `<span style="color:${mongoMal ? 'var(--error)' : 'inherit'}">${mongoMal}</span>`, mongoMal ? 'APIs sin base de datos' : 'ninguna') +
+    kpi('Reinicios detectados', `<span style="color:${reinicios ? 'var(--aviso)' : 'inherit'}">${reinicios}</span>`, 'desde que arrancó el monitor') +
+    kpi('Servicios con versiones distintas', `<span style="color:${distintas ? 'var(--aviso)' : 'inherit'}">${distintas}</span>`, 'mismo servicio, distinto commit');
+}
+
+function celdaContrato(a) {
+  if (esWs(a)) return '<span class="etiqueta-contrato na" title="Los WebSockets se validan con una sesión Socket.IO real">n/a · Socket.IO</span>';
+  if (a.nivel === 'pendiente') return '<span class="etiqueta-contrato na">—</span>';
+  return tieneContrato(a)
+    ? '<span class="etiqueta-contrato si">✓ dts-health/1</span>'
+    : '<span class="etiqueta-contrato no" title="Esta API todavía no responde /api/health/detalle: solo se sabe si está viva">Sin contrato</span>';
+}
+
+function celdaMongo(a) {
+  const m = a.contrato?.dependencias?.mongo;
+  if (!a.contrato) return '<span class="chico">—</span>';
+  if (!m) return '<span class="chico">no usa</span>';
+  return `<span class="dep ${m.estado}">${m.estado === 'ok' ? `✓ ${m.ms} ms` : esc(m.detalle)}</span>`;
+}
+
+function celdaVersion(a) {
+  const c = a.contrato;
+  if (!c) return '<span class="chico">—</span>';
+  return `<span class="mono">${c.version ? 'v' + esc(c.version) + ' · ' : ''}${c.commit ? esc(c.commit.slice(0, 7)) : 'sin commit'}</span>${c.rama ? `<span class="chico">rama ${esc(c.rama)}</span>` : ''}`;
+}
+
+function pintarTabla() {
+  const filtroSrv = $('filtroServidor').value;
+  const texto = $('buscar').value.trim().toLowerCase();
+  const solo = $('soloProblemas').checked;
+  const sinContrato = $('soloSinContrato').checked;
+
+  const html = datos.servidores
+    .filter((s) => !filtroSrv || s.nombre === filtroSrv)
+    .map((s) => {
+      const todas = apisDe(s);
+      let apis = todas.filter((a) => !texto || a.nombre.toLowerCase().includes(texto) || (a.servicio || '').toLowerCase().includes(texto) || String(a.puerto).includes(texto));
+      if (solo) apis = apis.filter((a) => a.nivel === 'error' || a.nivel === 'aviso' || a.reinicios);
+      if (sinContrato) apis = apis.filter((a) => !esWs(a) && !tieneContrato(a) && a.nivel !== 'sinacceso');
+      if (!apis.length) return '';
+      const http = todas.filter((a) => !esWs(a) && a.nivel !== 'sinacceso');
+      const con = http.filter(tieneContrato).length;
+      const grupo = `<tr class="grupo"><td colspan="10">${esc(cap(s.nombre))}${s.demo ? ' (demo)' : ''}<span class="host">${esc(s.host)}</span>
+        <button class="secundario" data-probar-servidor="${esc(s.nombre)}">Probar todo el servidor</button>
+        <span class="cobertura">${con}/${http.length} con contrato</span></td></tr>`;
+      const filas = apis.map((a) => {
+        const donde = a.servicio ? `/${esc(a.servicio)}` : `:${a.puerto}`;
+        const renombrada = a.nombreCatalogo && a.nombreCatalogo !== a.nombre ? `<span class="chico">catálogo: ${esc(a.nombreCatalogo)}</span>` : '';
+        const c = a.contrato;
+        return `<tr>
+          <td><span class="api">${esc(a.nombre)}</span> <span class="donde">${donde}</span>${renombrada}</td>
+          <td>${celdaContrato(a)}</td>
+          <td><span class="estado ${a.nivel === 'pendiente' ? 'pend' : a.nivel}">${esc(a.detalle)}</span>${a.error?.causa && a.nivel !== 'ok' ? `<span class="chico" style="max-width:320px">${esc(a.error.causa)}</span>` : ''}</td>
+          <td>${celdaMongo(a)}</td>
+          <td>${celdaVersion(a)}</td>
+          <td class="num">${c ? duracion(c.uptimeSegundos) : '—'}</td>
+          <td class="num">${a.reinicios ? `<span class="reinicio" title="Último: ${esc(a.ultimoReinicio)}">↻ ${a.reinicios}</span>` : (c ? '0' : '—')}</td>
+          <td class="num">${c?.memoriaMB?.rss ? c.memoriaMB.rss + ' MB' : '—'}</td>
+          <td class="num">${a.ms != null ? a.ms + ' ms' : '—'}</td>
+          <td><button class="secundario" data-probar="${esc(s.nombre)}" data-id="${esc(a.id)}">Probar</button></td>
+        </tr>`;
+      }).join('');
+      return grupo + filas;
+    }).join('');
+  $('filas').innerHTML = html || '<tr><td colspan="10" class="vacio">Nada que mostrar con estos filtros.</td></tr>';
+}
+
+// servicio -> commit -> [servidores]
+function versionesPorServicio() {
+  const mapa = new Map();
+  for (const s of datos.servidores) {
+    for (const a of apisDe(s)) {
+      const c = a.contrato;
+      if (!c?.servicio) continue;
+      if (!mapa.has(c.servicio)) mapa.set(c.servicio, { servicio: c.servicio, commits: new Map() });
+      const clave = c.commit || 'sin commit';
+      const v = mapa.get(c.servicio);
+      if (!v.commits.has(clave)) v.commits.set(clave, { rama: c.rama, servidores: [] });
+      v.commits.get(clave).servidores.push(cap(s.nombre));
+    }
+  }
+  return [...mapa.values()].sort((a, b) => b.commits.size - a.commits.size || a.servicio.localeCompare(b.servicio));
+}
+
+function pintarVersiones() {
+  const lista = versionesPorServicio();
+  $('versiones').innerHTML = lista.length ? lista.map((v) => {
+    const commits = [...v.commits.entries()].sort((a, b) => b[1].servidores.length - a[1].servidores.length);
+    return `<div class="version ${v.commits.size > 1 ? 'distinta' : ''}">
+      <h3>${esc(v.servicio)} ${v.commits.size > 1 ? `<span class="estado aviso">${v.commits.size} versiones</span>` : ''}</h3>
+      <ul>${commits.map(([commit, d]) => `<li><span class="mono">${esc(commit.slice(0, 7))}</span>${d.rama ? ` (${esc(d.rama)})` : ''}: ${d.servidores.map(esc).join(', ')}</li>`).join('')}</ul>
+    </div>`;
+  }).join('') : '<p class="vacio">Todavía ninguna API responde con el contrato de health. Aparecerán aquí cuando se desplieguen con <code>/api/health/detalle</code>.</p>';
+}
+
+function pintar() {
+  const sel = $('filtroServidor');
+  const actual = sel.value || safeGet('test-servidor') || '';
+  sel.innerHTML = '<option value="">Todos los servidores</option>' + datos.servidores.map((s) => `<option value="${esc(s.nombre)}" ${s.nombre === actual ? 'selected' : ''}>${esc(cap(s.nombre))}</option>`).join('');
+  pintarKpis();
+  pintarTabla();
+  pintarVersiones();
+  $('meta').textContent = datos.actualizado ? `Última revisión ${hace(datos.actualizado)}` : 'Primera revisión en curso…';
+}
+
+async function cargar() {
+  try {
+    datos = await (await fetch('/api/estado')).json();
+    pintar();
+  } catch {
+    $('meta').textContent = '⚠ No se pudo conectar con el monitor';
+  }
+}
+
+async function probar(servidor, id, boton) {
+  const textoOriginal = boton.textContent;
+  boton.disabled = true; boton.textContent = 'Probando…';
+  try {
+    const r = await fetch('/api/test-apis/probar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servidor, id }) });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.error || `Error ${r.status}`);
+    const apis = res.apis.map((a) => ({
+      api: a.nombre, donde: a.servicio ? '/' + a.servicio : ':' + a.puerto, estado: a.nivel, detalle: a.detalle,
+      respuestaMs: a.ms, consulta: a.ruta, codigoHttp: a.codigo,
+      ...(a.contrato ? { contrato: a.contrato } : { contrato: 'sin contrato (solo /health clásico)' }),
+      ...(a.error && a.nivel !== 'ok' ? { diagnostico: { titulo: a.error.titulo, causa: a.error.causa, queRevisar: a.error.sugerencia, tecnico: a.error.tecnico } } : {}),
+      ...(a.reinicios ? { reinicios: a.reinicios, ultimoReinicio: a.ultimoReinicio } : {}),
+    }));
+    $('resTitulo').textContent = id ? `${apis[0].api} ${apis[0].donde} — ${cap(servidor)}` : `${cap(servidor)}: ${apis.length} APIs`;
+    $('resSub').textContent = `Probado ahora en ${res.ms} ms`;
+    $('resJson').textContent = JSON.stringify(id ? apis[0] : apis, null, 2);
+    $('dlgResultado').showModal();
+    await cargar();
+  } catch (e) {
+    $('resTitulo').textContent = 'No se pudo probar';
+    $('resSub').textContent = '';
+    $('resJson').textContent = e.message;
+    $('dlgResultado').showModal();
+  }
+  boton.disabled = false; boton.textContent = textoOriginal;
+}
+
+$('filas').addEventListener('click', (e) => {
+  const una = e.target.closest('[data-probar]');
+  if (una) return probar(una.dataset.probar, una.dataset.id, una);
+  const todo = e.target.closest('[data-probar-servidor]');
+  if (todo) return probar(todo.dataset.probarServidor, null, todo);
+});
+$('resCerrar').addEventListener('click', () => $('dlgResultado').close());
+$('filtroServidor').addEventListener('change', () => { safeSet('test-servidor', $('filtroServidor').value); pintarTabla(); });
+$('buscar').addEventListener('input', pintarTabla);
+$('soloProblemas').addEventListener('change', pintarTabla);
+$('soloSinContrato').addEventListener('change', pintarTabla);
+
+cargar();
+setInterval(cargar, 60000);
+</script>
+</body>
+</html>

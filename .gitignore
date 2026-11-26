@@ -3,6 +3,7 @@ node_modules/
 
 # Credenciales y secretos (nunca subir)
 credenciales.json
+certs/
 .env
 .env.*
 !.env.example

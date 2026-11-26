@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLO y presupuesto de error</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
+    --ok: #16a34a; --ok-bg: #dcfce7; --aviso: #b45309; --aviso-bg: #fef3c7;
+    --error: #dc2626; --error-bg: #fee2e2; --accent: #2563eb; --accent-bg: #eff6ff; --gris-bg: #f1f2f4;
+    --serie: #2a78d6; --ideal: #9ca3af;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --text: #e5e7eb; --muted: #9ca3af; --line: #2a2f3a;
+      --ok: #22c55e; --ok-bg: #12301f; --aviso: #f59e0b; --aviso-bg: #3a2a0a;
+      --error: #f87171; --error-bg: #3b1414; --accent: #60a5fa; --accent-bg: #172235; --gris-bg: #20242c;
+      --serie: #3987e5; --ideal: #6b7280;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); padding: 0 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 12px 0; }
+  nav { display: flex; gap: 4px; align-self: stretch; overflow-x: auto; }
+  nav a { display: flex; align-items: center; padding: 0 14px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
+  nav a.activa { color: var(--accent); border-bottom-color: var(--accent); }
+  .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 20px; display: grid; gap: 20px; }
+  details.explica { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  details.explica summary { cursor: pointer; font-weight: 600; }
+  details.explica p { margin: 8px 0 0; color: var(--muted); }
+  details.explica code { background: var(--gris-bg); padding: 1px 6px; border-radius: 4px; color: var(--text); }
+
+  .controles { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .controles select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); font: inherit; }
+  .controles label { display: inline-flex; gap: 6px; align-items: center; }
+  .controles a.boton { margin-left: auto; padding: 8px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
+
+  .ventana { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .ventana .fila { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--muted); }
+  .ventana b { color: var(--text); }
+  .progreso { height: 8px; background: var(--gris-bg); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .progreso i { display: block; height: 100%; background: var(--accent); }
+  .aviso-datos { margin-top: 8px; font-size: 12.5px; color: var(--aviso); }
+
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi .etiqueta { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+  .kpi .valor { font-size: 28px; font-weight: 700; margin: 4px 0 2px; }
+  .kpi .valor small { font-size: 15px; color: var(--muted); font-weight: 600; }
+  .kpi .nota { font-size: 12px; color: var(--muted); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .sub { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+  .tabla { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr.fila-api { cursor: pointer; }
+  tbody tr.fila-api:hover { background: var(--gris-bg); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chico { display: block; font-size: 12px; color: var(--muted); }
+  .api { font-weight: 600; }
+
+  .presupuesto { min-width: 220px; }
+  .presupuesto .pista { height: 10px; background: var(--ok-bg); border-radius: 0 4px 4px 0; overflow: hidden; position: relative; }
+  .presupuesto .usado { position: absolute; inset: 0 auto 0 0; border-radius: 0 4px 4px 0; }
+  .presupuesto .usado.ok { background: var(--ok); } .presupuesto .usado.riesgo { background: var(--aviso); } .presupuesto .usado.agotado { background: var(--error); }
+  .presupuesto .texto { font-size: 12px; margin-top: 3px; }
+  .estado { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12.5px; white-space: nowrap; }
+  .estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .estado.ok { color: var(--ok); } .estado.riesgo { color: var(--aviso); } .estado.agotado { color: var(--error); }
+  .burn { font-variant-numeric: tabular-nums; font-size: 12.5px; white-space: nowrap; }
+  .burn .alto { color: var(--error); font-weight: 700; } .burn .medio { color: var(--aviso); font-weight: 700; }
+  .vacio { color: var(--muted); padding: 14px 0; }
+
+  dialog { border: 0; border-radius: 12px; padding: 0; width: min(820px, calc(100% - 32px)); background: var(--card); color: var(--text); box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialogo { padding: 20px 22px; }
+  .dialogo h3 { margin: 0 0 2px; }
+  .grafico svg { display: block; width: 100%; height: 280px; }
+  .grafico .eje text { fill: var(--muted); font-size: 11px; }
+  .grafico .grilla line { stroke: var(--line); }
+  .leyenda { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .leyenda span::before { content: ""; display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; background: var(--serie); }
+  .leyenda span.ideal::before { background: var(--ideal); }
+  .dialogo .botones { display: flex; justify-content: flex-end; margin-top: 12px; }
+  .dialogo button { border: 0; border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; background: var(--accent); color: #fff; }
+
+  @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { main { padding: 16px; } header { padding: 0 16px; } .meta { margin-left: 0; width: 100%; padding-bottom: 8px; } .controles a.boton { margin-left: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor de APIs</h1>
+  <nav><a href="/resumen">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/slo" class="activa">SLO / SLA</a><a href="/servidores">Servidores</a><a href="/test-apis">Test de APIs</a></nav>
+  <span class="meta" id="meta">Cargando…</span>
+</header>
+
+<main>
+  <details class="explica">
+    <summary>¿Qué es el SLO y el presupuesto de error?</summary>
+    <p><b>SLO</b> es el objetivo de disponibilidad de cada API en el mes (por ejemplo 99,5 %). Ese objetivo deja un
+      <b>presupuesto de error</b>: la caída permitida. Con 99,5 % en un mes de 30 días son <b>3 h 36 min</b>; cada falla lo va gastando.</p>
+    <p>El <b>burn rate</b> dice a qué velocidad se gasta: <b>1×</b> significa que se agota justo al terminar el mes; <b>6×</b> en ~5 días; <b>14,4×</b> en ~2 días.
+      Se alerta cuando el ritmo pone en riesgo el objetivo, no por cualquier falla aislada.</p>
+    <p>Los objetivos se configuran en <code>servidores.json</code>:
+      <code>"slo": { "objetivo": 99.5, "porServicio": { "APITicket": 99.9 }, "porServidor": { "torax": 99.9 } }</code>.
+      Las fallas durante una mantención no gastan presupuesto.</p>
+  </details>
+
+  <div class="controles">
+    <select id="mes" aria-label="Mes"></select>
+    <select id="servidor" aria-label="Servidor"><option value="">Todos los servidores</option></select>
+    <label><input type="checkbox" id="soloRiesgo"> Solo en riesgo o incumplidas</label>
+    <a class="boton" id="descargar" href="/api/slo.csv" download>Descargar informe SLA (CSV)</a>
+  </div>
+
+  <section class="ventana" id="ventana"></section>
+  <section class="kpis" id="kpis"></section>
+
+  <section class="card">
+    <h2>Presupuesto de error por API</h2>
+    <p class="sub">Ordenado de mayor a menor riesgo. Haz clic en una API para ver cómo se fue gastando su presupuesto en el mes.</p>
+    <div class="tabla"><table>
+      <thead><tr>
+        <th>Servidor / API</th><th class="num">Objetivo</th><th class="num">Disponibilidad</th><th>Presupuesto de error</th>
+        <th class="num">Proyección fin de mes</th><th>Burn rate 1 h · 6 h · 3 d</th><th>Estado</th>
+      </tr></thead>
+      <tbody id="filas"><tr><td colspan="7" class="vacio">Cargando…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Por servidor</h2>
+    <p class="sub">Disponibilidad del mes considerando todas sus APIs.</p>
+    <div class="tabla"><table style="min-width:600px">
+      <thead><tr><th>Servidor</th><th class="num">Disponibilidad</th><th class="num">APIs</th><th class="num">En riesgo</th><th class="num">Incumplidas</th></tr></thead>
+      <tbody id="servidores"></tbody>
+    </table></div>
+  </section>
+</main>
+
+<dialog id="dlgDetalle">
+  <div class="dialogo">
+    <h3 id="detTitulo"></h3>
+    <p class="chico" id="detSub"></p>
+    <div class="grafico" id="detGrafico"></div>
+    <div class="leyenda"><span>Presupuesto restante</span><span class="ideal">Gasto parejo (se agota justo a fin de mes)</span></div>
+    <div class="botones"><button id="detCerrar">Cerrar</button></div>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cap = (s) => String(s ?? '').charAt(0).toUpperCase() + String(s ?? '').slice(1);
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+let datos = null;
+const pct = (v, d = 2) => (v == null ? '—' : `${v >= 99.9995 ? '100' : v.toFixed(d)}`.replace('.', ',') + ' %');
+function dur(ms) {
+  const min = Math.round(Math.abs(ms) / 60000);
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} h ${String(min % 60).padStart(2, '0')} min`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+const ESTADO = { ok: 'Cumpliendo', riesgo: 'En riesgo', agotado: 'Incumplido' };
+const ALERTA = {
+  agotado: 'Presupuesto agotado',
+  critica: 'Consumo muy rápido (1 h)',
+  alta: 'Consumo rápido (6 h)',
+  lenta: 'No alcanza el mes (3 d)',
+};
+
+function opcionesMes(actual) {
+  const [a, m] = actual.split('-').map(Number);
+  const lista = [];
+  for (let i = 0; i < 3; i++) {
+    const d = new Date(Date.UTC(a, m - 1 - i, 15));
+    const valor = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    lista.push(`<option value="${valor}">${cap(d.toLocaleDateString('es-CL', { month: 'long', year: 'numeric', timeZone: 'UTC' }))}${i === 0 ? ' (en curso)' : ''}</option>`);
+  }
+  return lista.join('');
+}
+
+function burnTexto(v) {
+  const clase = v >= 6 ? 'alto' : v >= 1 ? 'medio' : '';
+  return `<span class="${clase}">${v < 0.05 ? '0' : v.toFixed(1).replace('.', ',')}×</span>`;
+}
+
+function pintar() {
+  const v = datos.ventana;
+  const filtroSrv = $('servidor').value;
+  const soloRiesgo = $('soloRiesgo').checked;
+  const apis = datos.apis.filter((f) => (!filtroSrv || f.servidor === filtroSrv) && (!soloRiesgo || f.estado !== 'ok'));
+
+  // Ventana del mes
+  const desde = datos.datosDesde ? new Date(datos.datosDesde).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  $('ventana').innerHTML = `
+    <div class="fila"><span><b>${esc(cap(v.etiqueta))}</b> · transcurrido ${pct(v.transcurridoPct, 0)}${v.quedanMs ? ` · quedan ${dur(v.quedanMs)}` : ' · mes cerrado'}</span>
+      <span>Datos desde ${desde} · cobertura ${pct(datos.coberturaPct, 0)} del mes transcurrido</span></div>
+    <div class="progreso"><i style="width:${Math.min(100, v.transcurridoPct)}%"></i></div>
+    ${datos.coberturaPct < 95 ? `<div class="aviso-datos">⚠ El monitor no tiene datos de todo el mes (empezó a guardar el ${desde}). La disponibilidad se calcula solo sobre el tiempo con datos; los días sin datos no cuentan como buenos ni malos.</div>` : ''}
+    ${(datos.ciclosExcluidos || []).length ? `<div class="aviso-datos">ⓘ Se excluyeron ${datos.ciclosExcluidos.length === 1 ? '1 revisión' : datos.ciclosExcluidos.length + ' revisiones'} en que fallaron casi todas las APIs de varios servidores a la vez
+      (${datos.ciclosExcluidos.map((c) => `${new Date(c.t).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}: ${c.caidas} de ${c.total} APIs en ${c.servidores} de ${c.deServidores} servidores`).join('; ')}).
+      Es casi seguro un corte de red del propio monitor, así que no se descuenta del presupuesto de ninguna API.</div>` : ''}`;
+
+  // Indicadores
+  const todas = datos.apis.filter((f) => !filtroSrv || f.servidor === filtroSrv);
+  const n = (e) => todas.filter((f) => f.estado === e).length;
+  const obs = todas.reduce((s, f) => s + f.observadoMs, 0);
+  const malo = todas.reduce((s, f) => s + f.consumidoMs, 0);
+  const kpi = (etiqueta, valor, nota, color) => `<div class="kpi"><div class="etiqueta">${etiqueta}</div><div class="valor" style="${color ? `color:${color}` : ''}">${valor}</div><div class="nota">${nota}</div></div>`;
+  $('kpis').innerHTML =
+    kpi('Disponibilidad del mes', obs ? pct((1 - malo / obs) * 100, 3) : '—', filtroSrv ? cap(filtroSrv) : 'todas las APIs') +
+    kpi('Cumpliendo el SLO', `${n('ok')}<small> / ${todas.length}</small>`, 'APIs dentro de su presupuesto', n('ok') === todas.length ? 'var(--ok)' : '') +
+    kpi('En riesgo', n('riesgo'), 'gastan el presupuesto demasiado rápido', n('riesgo') ? 'var(--aviso)' : '') +
+    kpi('Incumplidas', n('agotado'), 'presupuesto del mes agotado', n('agotado') ? 'var(--error)' : '') +
+    kpi('Objetivo por defecto', pct(datos.objetivoPorDefecto, datos.objetivoPorDefecto % 1 ? 1 : 0), `${dur((1 - datos.objetivoPorDefecto / 100) * (v.hasta - v.desde))} de caída permitida al mes`);
+
+  // Tabla por API
+  $('filas').innerHTML = apis.length ? apis.map((f, i) => {
+    const usado = Math.min(100, f.consumidoPct);
+    const textoRestante = f.restanteMs >= 0
+      ? `Quedan <b>${dur(f.restanteMs)}</b> de ${dur(f.permitidoMs)}`
+      : `<b style="color:var(--error)">Se pasó por ${dur(-f.restanteMs)}</b> (permitido ${dur(f.permitidoMs)})`;
+    const proy = f.proyeccionPct == null ? '<span class="chico">falta 1 día de datos</span>'
+      : `<span style="color:${f.proyeccionPct > 100 ? (f.estado === 'ok' ? 'var(--aviso)' : 'var(--error)') : f.proyeccionPct > 75 ? 'var(--aviso)' : 'inherit'}"
+          title="Si el resto del mes fallara al mismo ritmo promedio que hasta ahora">${Math.round(f.proyeccionPct)} % del presupuesto</span>${f.proyeccionPct > 100 && f.estado === 'ok' ? '<span class="chico">fallas antiguas; los últimos 3 días van bien</span>' : ''}`;
+    return `<tr class="fila-api" data-i="${datos.apis.indexOf(f)}">
+      <td><span class="api">${esc(f.nombre)}</span><span class="chico">${esc(cap(f.servidor))}</span></td>
+      <td class="num">${pct(f.objetivo, f.objetivo % 1 ? 1 : 0)}</td>
+      <td class="num">${pct(f.disponibilidad, 3)}</td>
+      <td class="presupuesto"><div class="pista"><span class="usado ${f.estado}" style="width:${usado}%"></span></div>
+        <div class="texto">${textoRestante} · usado ${Math.round(f.consumidoPct)} %</div></td>
+      <td class="num">${proy}</td>
+      <td class="burn">${burnTexto(f.burnRate.h1)} · ${burnTexto(f.burnRate.h6)} · ${burnTexto(f.burnRate.d3)}</td>
+      <td><span class="estado ${f.estado}">${ESTADO[f.estado]}</span>${f.alerta && f.alerta !== 'agotado' ? `<span class="chico">${ALERTA[f.alerta]}</span>` : ''}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" class="vacio">${soloRiesgo ? '✓ Ninguna API en riesgo.' : 'Sin datos para este mes.'}</td></tr>`;
+
+  // Por servidor
+  $('servidores').innerHTML = datos.servidores
+    .filter((s) => !filtroSrv || s.servidor === filtroSrv)
+    .sort((a, b) => (a.disponibilidad ?? 100) - (b.disponibilidad ?? 100))
+    .map((s) => `<tr><td>${esc(cap(s.servidor))}</td><td class="num">${pct(s.disponibilidad, 3)}</td><td class="num">${s.apis}</td>
+      <td class="num" style="color:${s.enRiesgo ? 'var(--aviso)' : 'inherit'}">${s.enRiesgo}</td>
+      <td class="num" style="color:${s.agotadas ? 'var(--error)' : 'inherit'}">${s.agotadas}</td></tr>`).join('');
+
+  $('descargar').href = `/api/slo.csv?mes=${encodeURIComponent(v.mes)}`;
+  $('descargar').setAttribute('download', `sla-${v.mes}.csv`);
+  $('meta').textContent = `Calculado ${new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// Gráfico de "burn-down": presupuesto restante día a día contra el gasto parejo.
+function detalle(f) {
+  const v = datos.ventana;
+  const dias = Math.round((v.hasta - v.desde) / 86400e3);
+  const W = 760, H = 280, m = { l: 64, r: 14, t: 12, b: 28 };
+  const max = f.permitidoMs;
+  let restante = max;
+  const puntos = [{ dia: 0, ms: max }];
+  for (const d of f.diario) { restante -= d.maloMs; puntos.push({ dia: d.dia + 1, ms: restante }); }
+  const minY = Math.min(0, ...puntos.map((p) => p.ms));
+  const x = (dia) => m.l + (dia / dias) * (W - m.l - m.r);
+  const y = (ms) => m.t + (1 - (ms - minY) / (max - minY || 1)) * (H - m.t - m.b);
+  const ticks = [max, max / 2, 0, ...(minY < 0 ? [minY] : [])];
+  let svg = `<g class="grilla">${ticks.map((t) => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>`).join('')}</g>`;
+  svg += `<g class="eje">${ticks.map((t) => `<text x="${m.l - 8}" y="${y(t) + 4}" text-anchor="end">${t < 0 ? '−' : ''}${dur(t)}</text>`).join('')}`;
+  for (const d of [0, Math.round(dias / 2), dias]) svg += `<text x="${x(d)}" y="${H - 8}" text-anchor="${d === 0 ? 'start' : d === dias ? 'end' : 'middle'}">día ${d + (d === dias ? 0 : 1)}</text>`;
+  svg += '</g>';
+  svg += `<line x1="${x(0)}" y1="${y(max)}" x2="${x(dias)}" y2="${y(0)}" stroke="var(--ideal)" stroke-width="2" stroke-dasharray="5 4"/>`;
+  svg += `<path d="${puntos.map((p, i) => `${i ? 'L' : 'M'}${x(p.dia).toFixed(1)},${y(p.ms).toFixed(1)}`).join('')}" fill="none" stroke="var(--serie)" stroke-width="2"/>`;
+  svg += puntos.map((p) => `<circle cx="${x(p.dia)}" cy="${y(p.ms)}" r="3" fill="var(--serie)"/>`).join('');
+  $('detTitulo').textContent = `${f.nombre} · ${cap(f.servidor)}`;
+  $('detSub').textContent = `Objetivo ${pct(f.objetivo, f.objetivo % 1 ? 1 : 0)} · disponibilidad ${pct(f.disponibilidad, 3)} · `
+    + (f.restanteMs >= 0 ? `quedan ${dur(f.restanteMs)} de ${dur(f.permitidoMs)}` : `se pasó por ${dur(-f.restanteMs)}`);
+  $('detGrafico').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Presupuesto de error restante por día">${svg}</svg>`;
+  $('dlgDetalle').showModal();
+}
+
+async function cargar() {
+  const mes = $('mes').value;
+  try {
+    const r = await fetch(`/api/slo${mes ? `?mes=${mes}` : ''}`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
+    datos = d;
+    if (!$('mes').options.length) { $('mes').innerHTML = opcionesMes(d.mesActual); $('mes').value = d.ventana.mes; }
+    const actual = $('servidor').value || safeGet('slo-servidor') || '';
+    const nombres = [...new Set(d.apis.map((f) => f.servidor))].sort();
+    $('servidor').innerHTML = '<option value="">Todos los servidores</option>' + nombres.map((s) => `<option value="${esc(s)}" ${s === actual ? 'selected' : ''}>${esc(cap(s))}</option>`).join('');
+    pintar();
+  } catch (e) {
+    $('meta').textContent = `⚠ ${e.message}`;
+    $('filas').innerHTML = `<tr><td colspan="7" class="vacio">${esc(e.message)}</td></tr>`;
+  }
+}
+
+$('mes').addEventListener('change', cargar);
+$('servidor').addEventListener('change', () => { safeSet('slo-servidor', $('servidor').value); pintar(); });
+$('soloRiesgo').addEventListener('change', pintar);
+$('filas').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr.fila-api');
+  if (tr) detalle(datos.apis[Number(tr.dataset.i)]);
+});
+$('detCerrar').addEventListener('click', () => $('dlgDetalle').close());
+
+cargar();
+setInterval(cargar, 5 * 60000);
+</script>
+</body>
+</html>

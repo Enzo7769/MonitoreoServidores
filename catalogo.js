@@ -2,6 +2,8 @@
 // Sale de los .env de cada repo y de docker-fila/docker-compose.yml.
 // tipo 'ws'  = WebSocket Python: solo se valida que el puerto acepte conexión.
 // health     = rutas a probar en orden (por defecto /api/health y /health).
+// contrato   = ruta del contrato de health dts-health/1 (por defecto /api/health/detalle;
+//              las APIs que no usan el prefijo /api lo exponen en /health/detalle).
 
 const puertos = {
   3000: { nombre: 'apiRESTfulTramites' },
@@ -13,7 +15,7 @@ const puertos = {
   3006: { nombre: 'APICreacionAgenda' },
   3007: { nombre: 'apiRESTfulAsignacionMedico' },
   3008: { nombre: 'apiTextoBarra' },
-  3009: { nombre: 'apiObtenerAvisoBase' },
+  3009: { nombre: 'apiObtenerAvisoBase', contrato: '/health/detalle' },
   3010: { nombre: 'APIConsultaCita' },
   3011: { nombre: 'APIRestfulEstadosEjecutivos' },
   3012: { nombre: 'apiTipoCierres' },
@@ -26,7 +28,7 @@ const puertos = {
   3019: { nombre: 'apiRESTfulPromociones' },
   3020: { nombre: 'APITramites' },
   3021: { nombre: 'APITicket' },
-  3022: { nombre: 'APITTS' },
+  3022: { nombre: 'APITTS', contrato: '/health/detalle' },
   3023: { nombre: 'APIEstadisticas' },
   3024: { nombre: 'APIDatosMonitoreo' },
   3025: { nombre: 'APIMonitoreo' },
@@ -41,7 +43,7 @@ const puertos = {
   3032: { nombre: 'APICitasUDT' },
   3033: { nombre: 'APIRestfulIngresaArchivos' },
   3085: { nombre: 'WebSocketVideo', tipo: 'ws' },
-  4000: { nombre: 'APIGatewayFila', health: ['/health', '/ping'] },
+  4000: { nombre: 'APIGatewayFila', health: ['/health', '/ping'], contrato: '/health/detalle' },
 };
 
 // Puertos donde puede estar APIGatewayFila (descubrir.js lo detecta solo).
