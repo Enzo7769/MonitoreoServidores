@@ -56,6 +56,9 @@ node descubrir.js            # volver a detectar las APIs de cada servidor
 ```
 Los cambios en `servidores.json` y `credenciales.json` se toman en la siguiente revisión, sin reiniciar.
 El puerto (`puertoDashboard`) y el SSL se leen solo al arrancar: después de cambiarlos, `pm2 restart monitor-apis`.
+**En test.dts.lat los puertos los fija `ecosystem.config.js`** (`PUERTO_DASHBOARD=3030`, `PUERTO_RUM=3031`), que manda
+sobre `servidores.json`. Después de cambiar ese archivo hay que recargarlo: `pm2 restart ecosystem.config.js --update-env`
+(un `pm2 restart monitor-apis` solo NO toma variables nuevas).
 
 ## Configuración (`servidores.json`)
 
@@ -63,7 +66,7 @@ El puerto (`puertoDashboard`) y el SSL se leen solo al arrancar: después de cam
 |---|---|
 | `intervaloSegundos` | Cada cuánto revisa (900 = 15 min) |
 | `timeoutMs` / `lentoMs` | Espera máxima por API / sobre cuánto se marca "lenta" |
-| `puertoDashboard` | Puerto web del monitor (8090) |
+| `puertoDashboard` | Puerto web del monitor (8090 en un PC local; en test.dts.lat lo fija `PUERTO_DASHBOARD` = 3030) |
 | `ssl.activo` | `true` sirve el panel por HTTPS; `false` lo deja en HTTP. El certificado y la clave solo se leen si está en `true`. |
 | `ssl.certificado` / `ssl.clave` | Rutas del certificado y de la clave privada. Relativas a la carpeta del proyecto, o absolutas. `ssl.ca` (cadena) y `ssl.frase` (si la clave está cifrada) son opcionales. |
 | `retencionDias` | Días que se guardan las revisiones en MongoDB |
@@ -88,12 +91,15 @@ monitor no ve desde el servidor: la red de una sucursal, un navegador colgado o 
 
 **En el front** (`index.html`), justo después del `<script>` de socket.io:
 ```html
-<script src="https://test.dts.lat:8091/rum.js" data-tipo="visor" data-claves="idVisor,idSector,ipEquipo" defer></script>
+<script src="https://test.dts.lat:3031/rum.js" data-tipo="visor" data-claves="idVisor,idSector,ipEquipo"></script>
 ```
 `data-claves` son claves de `localStorage` que identifican al equipo (nunca datos de pacientes). El nombre
 ("Visor Centro Lebu") se le pone después en la pestaña Pantallas.
 
-**Puerto público:** `rum.puerto` (8091) expone **solo** `/rum.js` y `/api/beacon`; el panel (8090) sigue cerrado.
+Sin `defer`: así `rum.js` alcanza a ver también los errores que ocurren mientras carga la página.
+
+**Puerto público:** `rum.puerto` (8091 en local; **3031 en test.dts.lat**, vía `PUERTO_RUM`) expone **solo** `/rum.js` y
+`/api/beacon`; el panel (8090 en local, 3030 en test) no queda expuesto por ese puerto.
 Es el único puerto que hay que abrir en el firewall para las sucursales. Usa el mismo SSL del panel: si los fronts
 están en `https://`, el monitor tiene que tener `ssl.activo: true` o el navegador bloquea el reporte.
 
