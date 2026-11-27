@@ -92,7 +92,7 @@
 <body>
 <header>
   <h1>Monitor de APIs</h1>
-  <nav><a href="/resumen" class="activa">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/slo">SLO / SLA</a><a href="/servidores">Servidores</a><a href="/test-apis">Test de APIs</a></nav>
+  <nav><a href="/resumen" class="activa">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/slo">SLO / SLA</a><a href="/pantallas">Pantallas</a><a href="/servidores">Servidores</a><a href="/test-apis">Test de APIs</a></nav>
   <span class="meta" id="meta">Cargando…</span>
 </header>
 
@@ -192,7 +192,8 @@ const duracion = (ms) => {
   const m = Math.round(ms / 60000);
   return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`;
 };
-const ALCANCE = { servidor: 'Servidor completo', mongo: 'MongoDB', gateway: 'Gateway', api: 'API', ssl: 'Certificado SSL' };
+const ALCANCE = { servidor: 'Servidor completo', mongo: 'MongoDB', gateway: 'Gateway', api: 'API', ssl: 'Certificado SSL', pantalla: 'Pantalla', red: 'Pantallas de una red' };
+const PANTALLAS = new Set(['pantalla', 'red']);
 
 function textoSsl(c) {
   if (!c || c.dias == null) return '<span class="cero">—</span>';
@@ -271,9 +272,9 @@ function pintar() {
     <thead><tr><th class="izq">Servidor</th><th class="izq">Incidente</th><th class="izq">Causa y qué revisar</th><th>Desde</th></tr></thead>
     <tbody>${incs.map((i) => `
       <tr class="${i.nivel}">
-        <td class="izq"><a class="enlace" href="/?abrir=${encodeURIComponent(i.servidor)}"><b>${esc(cap(i.servidor))}</b></a><span class="host">${ALCANCE[i.alcance] || ''}</span></td>
+        <td class="izq"><a class="enlace" href="${PANTALLAS.has(i.alcance) ? '/pantallas' : `/?abrir=${encodeURIComponent(i.servidor)}`}"><b>${esc(cap(i.servidor))}</b></a><span class="host">${ALCANCE[i.alcance] || ''}</span></td>
         <td class="izq"><span class="badge ${i.nivel}">${esc(i.titulo)}</span><span class="host">${esc(i.tipo)}</span>
-          ${i.apis.length > 1 ? `<span class="host">${i.apis.length} APIs: ${esc(i.apis.slice(0, 6).join(', '))}${i.apis.length > 6 ? '…' : ''}</span>` : ''}</td>
+          ${i.apis.length > 1 ? `<span class="host">${i.apis.length} ${PANTALLAS.has(i.alcance) ? 'pantallas' : 'APIs'}:${esc(i.apis.slice(0, 6).join(', '))}${i.apis.length > 6 ? '…' : ''}</span>` : ''}</td>
         <td class="izq diag">${esc(i.causa)}${i.sugerencia ? `<span class="sug">→ ${esc(i.sugerencia)}</span>` : ''}</td>
         <td>${hace(i.inicio)}<span class="host">${duracion(Date.now() - i.inicio)}</span></td>
       </tr>`).join('')}</tbody></table></div>`

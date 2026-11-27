@@ -8,6 +8,9 @@
     "certificado": "certs/certificado.pem",
     "clave": "certs/clave.key"
   },
+  "rum": {
+    "puerto": 8091
+  },
   "retencionDias": 30,
   "zonaHoraria": "America/Santiago",
   "mongoUri": "mongodb://test.dts.lat:27017/?directConnection=true",

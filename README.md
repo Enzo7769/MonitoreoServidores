@@ -76,6 +76,47 @@ El puerto (`puertoDashboard`) y el SSL se leen solo al arrancar: después de cam
 | `mongo` (en cada servidor) | Ping directo a MongoDB de ese servidor. Solo corre si `"activo": true`. Por defecto apagado (sin el campo, o `"activo": false`). Puerto 27017 si no se indica otro. Se enciende o apaga en la pestaña Servidores. |
 | `slo` | Objetivos de disponibilidad mensual. Ej.: `{ "objetivo": 99.5, "porServicio": { "APITicket": 99.9 }, "porServidor": { "torax": 99.9 } }`. Prioridad: por servicio > por servidor > `objetivo` (99,5 si no se indica). |
 
+| `rum` | Pantallas (visores, UAC, tótems) que reportan desde el navegador. Ver la sección "Pantallas". |
+
+## Pantallas (pestaña "Pantallas")
+
+Cada front carga `rum.js` desde el monitor y reporta desde el navegador: tiempos de carga, errores de JavaScript
+(también los que la página captura y escribe con `console.error`), estado de cada WebSocket (envuelve `io()` de
+socket.io), llamadas a APIs por endpoint (envuelve `fetch` y `XMLHttpRequest`, o sea también jQuery), memoria y bloqueos.
+De las llamadas no se envía el cuerpo ni los parámetros: solo método, URL sin query (ids y RUT → `:id`) y si salió bien. Un latido cada 60 s. Detecta lo que el
+monitor no ve desde el servidor: la red de una sucursal, un navegador colgado o un visor que perdió su WebSocket.
+
+**En el front** (`index.html`), justo después del `<script>` de socket.io:
+```html
+<script src="https://test.dts.lat:8091/rum.js" data-tipo="visor" data-claves="idVisor,idSector,ipEquipo" defer></script>
+```
+`data-claves` son claves de `localStorage` que identifican al equipo (nunca datos de pacientes). El nombre
+("Visor Centro Lebu") se le pone después en la pestaña Pantallas.
+
+**Puerto público:** `rum.puerto` (8091) expone **solo** `/rum.js` y `/api/beacon`; el panel (8090) sigue cerrado.
+Es el único puerto que hay que abrir en el firewall para las sucursales. Usa el mismo SSL del panel: si los fronts
+están en `https://`, el monitor tiene que tener `ssl.activo: true` o el navegador bloquea el reporte.
+
+| `rum.*` | Por defecto | Qué hace |
+|---|---|---|
+| `puerto` | — | Puerto público solo para pantallas. Sin él, se reporta al puerto del panel. |
+| `sinLatidoMin` | 3 | Minutos sin reportes para abrir incidente "Pantalla sin reportar" |
+| `socketMin` | 2 | Minutos con un WebSocket desconectado para abrir incidente |
+| `erroresUmbral` | 20 | Errores de JavaScript (incluye `console.error`) en 15 min para avisar |
+| `audioMin` | 15 | Audio: si la voz o el sonido fallaron en estos minutos y **no volvieron a sonar** → error ("Voz no suena…", "Sonido no suena…"); si fallaron pero después sonaron, o falla un video → aviso. Motivos: sonido automático bloqueado, archivo que no carga, voz que no avisa que terminó (cuelgue), sin parlantes, sin voz para el idioma. En el detalle se ven la voz usada y las voces instaladas en el equipo. |
+| `llamadasMin` / `fallosUmbral` | 5 / 3 | Llamadas a APIs: si un endpoint falla `fallosUmbral` veces en `llamadasMin` min y **ninguna** sale bien → error ("No logra llamar a…"); si algunas sí salen bien → aviso. Falla = sin respuesta (CORS, red, certificado) o HTTP 5xx; un 401/404 es respuesta de la API y no cuenta. |
+| `horario` | siempre | `{ "dias": [1,2,3,4,5,6], "desde": "07:00", "hasta": "21:00" }` (0 = domingo). Fuera de horario, una pantalla apagada no es incidente. |
+| `olvidarDias` | 7 | Pantallas sin reportes por más días se borran solas |
+| `token` | — | Si se define, el front debe mandarlo en `data-token` (filtra basura, no es secreto) |
+| `detrasDeProxy` | false | `true` si el puerto público está detrás de nginx: toma la IP de `X-Forwarded-For` |
+
+Cómo decide: **cerrar la página** no es incidente (queda "Cerrada"). **Sin reportes** por más de `sinLatidoMin`
+→ incidente; si caen **todas las pantallas de una misma red** → un solo incidente "Sucursal sin conexión"; si caen
+casi todas a la vez (≥ 80 %) → "No llegan reportes" (problema del monitor o de su puerto). **WebSocket
+desconectado**: si el monitor también lo ve caído en el servidor, no se duplica (ya hay incidente del servidor); si
+el servidor responde, es la red de la sucursal; si pasa en 3 o más sucursales → firewall/proxy/certificado de ese puerto.
+MongoDB guarda el último estado (`pantallas`) y los eventos 30 días (`pantallas_eventos`).
+
 ## SLO y presupuesto de error (pestaña "SLO / SLA")
 
 - **Objetivo (SLO):** disponibilidad que debe tener cada API en el **mes calendario** (zona `zonaHoraria`).

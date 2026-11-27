@@ -21,6 +21,7 @@ const slo = require('./slo');
 const certificados = require('./certificados');
 const { calcularDeriva } = require('./deriva');
 const Incidentes = require('./incidentes');
+const { Pantallas } = require('./pantallas');
 
 const RUTA_CREDENCIALES = path.join(__dirname, 'credenciales.json');
 const MSG_SSL_INCOMPLETO =
@@ -52,6 +53,27 @@ const SSL_CADA_MS = () => opcion('sslRevisarHoras', 6) * 3600e3;
 const PUERTO_MONGO = 27017;
 
 const enMantencion = (srv) => !!srv.mantencion && srv.mantencion.hasta > Date.now();
+
+// Pantallas (visores, UAC, tótems) que reportan desde el navegador con public/rum.js.
+const pantallas = new Pantallas({
+  almacen,
+  opciones: () => ({ rum: config.rum, zona: config.zonaHoraria || 'America/Santiago', demo: !!config.demo }),
+  ubicarHost: (host) => servidoresActivos().find((s) => s.host.toLowerCase() === host)?.nombre || null,
+  // Cómo ve el monitor el WebSocket al que se conecta la pantalla (para separar
+  // "se cayó el servidor" de "la sucursal no llega").
+  ubicarSocket: (host, puerto) => {
+    const srv = servidoresActivos().find((s) => s.host.toLowerCase() === host);
+    if (!srv) return null;
+    const vigilado = srv.puertos.includes(puerto);
+    const est = vigilado ? estado.get(`${srv.host}:${puerto}`) : null;
+    const conocido = srv.gateway?.puerto === puerto || catalogo[puerto];
+    return {
+      servidor: srv.nombre,
+      nombre: conocido ? `${definicionPuerto(srv, puerto).nombre} :${puerto}` : `Puerto ${puerto}`,
+      nivel: enMantencion(srv) ? 'mantencion' : est?.nivel || null,
+    };
+  },
+});
 
 function leerConfig() {
   return descubrimiento.leerConfig();
@@ -619,6 +641,13 @@ function agruparFallas() {
     const inc = slo.incidenteSlo(f);
     if (inc) grupos.set(`${f.servidor}|slo:${f.id}`, { servidor: f.servidor, persistir: true, ...inc });
   }
+
+  // Pantallas: sin reportes, sin WebSocket o con muchos errores de JavaScript.
+  for (const [clave, g] of pantallas.grupos()) {
+    const srv = servidoresActivos().find((s) => s.nombre === g.servidor);
+    if (srv && enMantencion(srv)) continue;
+    grupos.set(clave, g);
+  }
   return grupos;
 }
 
@@ -1088,11 +1117,52 @@ function opcionesSsl() {
   }
 }
 
+// ---- Rutas públicas de las pantallas (sin login: las llaman los navegadores de las sucursales) ----
+
+const RUTA_RUM = path.join(__dirname, 'public', 'rum.js');
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400' };
+
+function ipDe(req) {
+  const reenviada = config.rum?.detrasDeProxy ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  return (reenviada || req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+}
+
+function leerTexto(req, limite) {
+  return new Promise((resolve) => {
+    let texto = '';
+    req.setEncoding('utf8');
+    req.on('data', (c) => { texto += c; if (texto.length > limite) { texto = null; req.destroy(); } });
+    req.on('end', () => resolve(texto));
+    req.on('error', () => resolve(null));
+    req.on('close', () => resolve(texto));
+  });
+}
+
+// true si la ruta era pública y ya se respondió.
+async function atenderPublico(req, res, url) {
+  if (url.pathname === '/api/beacon') {
+    if (req.method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return true; }
+    if (req.method !== 'POST') { res.writeHead(405, CORS); res.end(); return true; }
+    const cuerpo = await leerTexto(req, 8 * 1024);
+    const codigo = pantallas.recibir(cuerpo, { ip: ipDe(req) });
+    res.writeHead(codigo, CORS);
+    res.end();
+    return true;
+  }
+  if (url.pathname === '/rum.js') {
+    res.writeHead(200, { ...CORS, 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+    fs.createReadStream(RUTA_RUM).pipe(res);
+    return true;
+  }
+  return false;
+}
+
 const opcionesHttps = opcionesSsl();
 const servidor = (opcionesHttps ? https : http).createServer(
   ...(opcionesHttps ? [opcionesHttps] : []),
   async (req, res) => {
   try {
+    if (await atenderPublico(req, res, new URL(req.url, 'http://localhost'))) return;
     if (!autorizado(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Monitor de APIs", charset="UTF-8"' });
       return res.end('Requiere usuario y clave');
@@ -1113,7 +1183,9 @@ const servidor = (opcionesHttps ? https : http).createServer(
       const datos = analitica.calcular(await ciclosDe(horas), { horas, servidor: filtro }, nombreApi);
       // Incidentes agrupados (colección "incidentes", con hora exacta). Si todavía no hay
       // ninguno guardado, se mantienen los calculados desde las revisiones de cada 15 min.
-      const guardados = await almacen.leerIncidentes(Date.now() - horas * 3600e3, { servidor: filtro }).catch(() => null);
+      // Los de pantallas tienen su propia pestaña: aquí solo cuentan los de las APIs.
+      const guardados = (await almacen.leerIncidentes(Date.now() - horas * 3600e3, { servidor: filtro }).catch(() => null))
+        ?.filter((i) => i.alcance !== 'pantalla' && i.alcance !== 'red') ?? null;
       if (guardados && (guardados.length || !datos.incidentes.length)) {
         datos.incidentes = guardados.map((i) => ({
           inicio: i.inicio, fin: i.fin, servidor: i.servidor, api: i.titulo, tipo: i.tipo, alcance: i.alcance,
@@ -1188,6 +1260,34 @@ const servidor = (opcionesHttps ? https : http).createServer(
       return responder(res, 200, { servidor: nombre, ms: Date.now() - t0, apis: s.apis.filter((a) => !id || a.id === id) });
     }
 
+    // Pestaña "Pantallas": lo que reportan los navegadores de visores, UAC y tótems.
+    if (url.pathname === '/api/pantallas' && req.method === 'GET') {
+      const rum = config.rum || {};
+      return enviarJson(res, {
+        ahora: Date.now(),
+        pantallas: pantallas.lista(),
+        incidentes: incidentes.lista().filter((i) => i.alcance === 'pantalla' || i.alcance === 'red'),
+        servidores: servidoresActivos().map((s) => s.nombre),
+        opciones: pantallas.opciones(),
+        puertoPublico: puertoRum || null,
+        urlPublica: rum.urlPublica || null,
+        conToken: !!rum.token,
+      });
+    }
+    if (url.pathname === '/api/pantallas/alias' && req.method === 'POST') {
+      const { id, alias } = await leerCuerpo(req);
+      if (!pantallas.renombrar(id, alias)) return responder(res, 404, { error: 'Pantalla no encontrada' });
+      await evaluarIncidentes();
+      return responder(res, 200, { ok: true });
+    }
+    if (url.pathname === '/api/pantallas/olvidar' && req.method === 'POST') {
+      const { id } = await leerCuerpo(req);
+      if (!(await pantallas.olvidar(id))) return responder(res, 404, { error: 'Pantalla no encontrada' });
+      await evaluarIncidentes();
+      return responder(res, 200, { ok: true });
+    }
+
+    if (url.pathname === '/pantallas') return enviarPagina(res, 'pantallas.html');
     if (url.pathname === '/servidores') return enviarPagina(res, 'servidores.html');
     if (url.pathname === '/test-apis') return enviarPagina(res, 'test-apis.html');
     if (url.pathname === '/slo') return enviarPagina(res, 'slo.html');
@@ -1221,6 +1321,7 @@ async function conectarMongo() {
     // El SLO es por mes calendario: se guardan al menos 35 días para tener siempre el mes completo.
     await almacen.conectar({ mongoUri, mongoDb: config.mongoDb, retencionDias: Math.max(config.retencionDias || 30, 35) });
     await incidentes.cargar();
+    await pantallas.cargar();
     console.log(`Historial en MongoDB: ${mongoUri.replace(/\/\/[^@/]*@/, '//***@')} base "${config.mongoDb || 'monitorAPIs'}"`);
   } catch (e) {
     console.error(`No se pudo conectar a MongoDB (${e.message}). Se reintenta en la próxima revisión.`);
@@ -1233,6 +1334,30 @@ servidor.listen(puertoDashboard, () => {
   console.log(`Monitor de APIs en ${protocolo}://localhost:${puertoDashboard}`);
   console.log(`Revisando ${config.servidores.length} servidores cada ${config.intervaloSegundos}s. Cambios de estado en logs/eventos.log\n`);
 });
+
+// Puerto público opcional (servidores.json → "rum.puerto"): expone SOLO /rum.js y /api/beacon,
+// para abrirlo en el firewall a las sucursales sin publicar el panel.
+const puertoRum = Number(process.env.PUERTO_RUM) || config.rum?.puerto;
+if (puertoRum && puertoRum !== puertoDashboard) {
+  (opcionesHttps ? https : http).createServer(...(opcionesHttps ? [opcionesHttps] : []), async (req, res) => {
+    try {
+      if (await atenderPublico(req, res, new URL(req.url, 'http://localhost'))) return;
+      res.writeHead(404, CORS);
+      res.end();
+    } catch (e) {
+      console.error('Error atendiendo pantalla', req.url, e.message);
+      if (!res.headersSent) res.writeHead(500, CORS);
+      res.end();
+    }
+  }).listen(puertoRum, () => console.log(`Reportes de pantallas (rum.js) en ${protocolo}://localhost:${puertoRum}`));
+}
+
+// Pantallas: cada 30 s se guardan los cambios y se revisan sus incidentes
+// (no esperan la revisión de APIs, que es cada 15 min).
+setInterval(() => {
+  pantallas.guardar().catch((e) => console.error('Error guardando pantallas:', e.message));
+  evaluarIncidentes();
+}, 30e3);
 
 (async function ciclo() {
   if (!almacen.conectado()) await conectarMongo();

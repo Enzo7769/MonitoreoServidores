@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pantallas</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1d2330; --muted: #6b7280; --line: #e5e7eb;
+    --ok: #16a34a; --ok-bg: #dcfce7; --aviso: #b45309; --aviso-bg: #fef3c7;
+    --error: #dc2626; --error-bg: #fee2e2; --accent: #2563eb; --accent-bg: #eff6ff; --gris-bg: #f1f2f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #181b22; --text: #e5e7eb; --muted: #9ca3af; --line: #2a2f3a;
+      --ok: #22c55e; --ok-bg: #12301f; --aviso: #f59e0b; --aviso-bg: #3a2a0a;
+      --error: #f87171; --error-bg: #3b1414; --accent: #60a5fa; --accent-bg: #172235; --gris-bg: #20242c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); padding: 0 20px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 12px 0; }
+  nav { display: flex; gap: 4px; align-self: stretch; overflow-x: auto; }
+  nav a { display: flex; align-items: center; padding: 0 14px; color: var(--muted); text-decoration: none; font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
+  nav a.activa { color: var(--accent); border-bottom-color: var(--accent); }
+  .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 20px; display: grid; gap: 20px; }
+  .intro { color: var(--muted); margin: 0; }
+  code { background: var(--gris-bg); padding: 1px 6px; border-radius: 4px; color: var(--text); }
+
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi .etiqueta { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+  .kpi .valor { font-size: 28px; font-weight: 700; margin: 4px 0 2px; }
+  .kpi .nota { font-size: 12px; color: var(--muted); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .sub { color: var(--muted); margin: 0 0 14px; font-size: 13px; }
+
+  .incidente { border-left: 4px solid var(--error); background: var(--error-bg); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+  .incidente.aviso { border-left-color: var(--aviso); background: var(--aviso-bg); }
+  .incidente b { display: block; }
+  .incidente .chico { color: var(--text); opacity: .8; }
+
+  .filtros { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .filtros select, .filtros input[type=search] { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+  .filtros input[type=search] { min-width: 220px; }
+  .filtros label { display: inline-flex; gap: 6px; align-items: center; }
+
+  button { border: 0; border-radius: 8px; padding: 7px 12px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .primario { background: var(--accent); color: #fff; }
+  .secundario { background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 4px 10px; font-size: 12.5px; }
+  .peligro { background: var(--error-bg); color: var(--error); }
+
+  .tabla { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.grupo td { background: var(--gris-bg); font-weight: 700; }
+  tr.grupo .cuenta { float: right; font-weight: 600; color: var(--muted); font-size: 12.5px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .nombre { font-weight: 600; }
+  .chico { display: block; font-size: 12px; color: var(--muted); }
+  .mono { font: 12px ui-monospace, Consolas, monospace; }
+  .vacio { color: var(--muted); padding: 14px 0; }
+
+  .estado { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; }
+  .estado::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+  .estado.ok { color: var(--ok); } .estado.aviso { color: var(--aviso); } .estado.error { color: var(--error); } .estado.cerrada, .estado.inactiva { color: var(--muted); }
+  .ws { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin: 0 4px 4px 0; white-space: nowrap; }
+  .ws.ok { background: var(--ok-bg); color: var(--ok); } .ws.caido { background: var(--error-bg); color: var(--error); }
+  .alto { color: var(--aviso); font-weight: 700; }
+
+  .instalar pre { background: var(--gris-bg); border-radius: 8px; padding: 12px; overflow: auto; font: 12.5px/1.5 ui-monospace, Consolas, monospace; margin: 8px 0; }
+  .instalar ol { margin: 0; padding-left: 20px; }
+  .instalar li { margin: 6px 0; }
+  .nota-aviso { background: var(--aviso-bg); color: var(--text); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+
+  dialog { border: 0; border-radius: 12px; padding: 0; width: min(860px, calc(100% - 32px)); background: var(--card); color: var(--text); box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dialogo { padding: 20px 22px; max-height: 85vh; overflow: auto; }
+  .dialogo h3 { margin: 0 0 4px; }
+  .dialogo h4 { margin: 16px 0 6px; font-size: 13.5px; }
+  .dialogo table { min-width: 0; }
+  .dialogo .botones { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .dialogo input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+  .datos { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; }
+  .datos dt { color: var(--muted); }
+  .datos dd { margin: 0; word-break: break-word; }
+
+  @media (max-width: 1000px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { main { padding: 16px; } header { padding: 0 16px; } .meta { margin-left: 0; width: 100%; padding-bottom: 8px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor de APIs</h1>
+  <nav><a href="/resumen">Resumen</a><a href="/">Estado en vivo</a><a href="/dashboard">Dashboard</a><a href="/slo">SLO / SLA</a><a href="/pantallas" class="activa">Pantallas</a><a href="/servidores">Servidores</a><a href="/test-apis">Test de APIs</a></nav>
+  <span class="meta" id="meta">Cargando…</span>
+</header>
+
+<main>
+  <p class="intro">Lo que ven los <b>visores, UAC y tótems</b> desde su navegador: si siguen abiertos, si sus WebSockets están conectados,
+    cuánto tardan en cargar y qué errores de JavaScript tienen. Detecta problemas que el monitor no ve desde el servidor:
+    la red de una sucursal, un navegador colgado o un visor que perdió la conexión.</p>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="card" id="cardIncidentes" hidden>
+    <h2>Incidentes activos de pantallas</h2>
+    <p class="sub">Se revisan cada 30 segundos.</p>
+    <div id="incidentes"></div>
+  </section>
+
+  <section class="card">
+    <h2>Pantallas</h2>
+    <p class="sub">Se agrupan por el servidor al que se conectan sus WebSockets. Haz clic en una fila para ver el detalle, los errores y renombrarla.</p>
+    <div class="filtros">
+      <select id="filtroServidor" aria-label="Servidor"><option value="">Todos los servidores</option></select>
+      <select id="filtroTipo" aria-label="Tipo"><option value="">Todos los tipos</option></select>
+      <input type="search" id="buscar" placeholder="Buscar pantalla, IP o id…">
+      <label><input type="checkbox" id="soloProblemas"> Solo problemas</label>
+      <label><input type="checkbox" id="verCerradas"> Ver cerradas e inactivas</label>
+    </div>
+    <div class="tabla"><table>
+      <thead><tr>
+        <th>Pantalla</th><th>Estado</th><th>Conexiones</th><th>Audio</th><th>Llamadas a APIs (5 min)</th><th>Último reporte</th><th class="num">Carga</th>
+        <th class="num">Errores (1 h)</th><th class="num">Memoria</th><th class="num">Bloqueo máx.</th><th>Red</th>
+      </tr></thead>
+      <tbody id="filas"><tr><td colspan="11" class="vacio">Cargando…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="card instalar">
+    <h2>Cómo agregar una pantalla</h2>
+    <p class="sub">En el <code>index.html</code> del front, justo <b>después</b> del <code>&lt;script&gt;</code> de socket.io, agrega una línea:</p>
+    <pre id="snippet"></pre>
+    <ol>
+      <li><code>data-tipo</code>: <code>visor</code>, <code>uac</code>, <code>totem</code>… (cómo se agrupa aquí).</li>
+      <li><code>data-claves</code>: claves de <code>localStorage</code> que identifican al equipo (en el visor: <code>idVisor,idSector,ipEquipo</code>). Nunca datos de pacientes.</li>
+      <li>Al abrir el front, la pantalla aparece aquí en menos de un minuto. Después le puedes poner un nombre ("Visor Centro Lebu").</li>
+    </ol>
+    <p class="nota-aviso" id="notaPuerto" hidden></p>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <div class="dialogo">
+    <h3 id="dTitulo"></h3>
+    <p class="chico" id="dSub"></p>
+    <label class="chico" for="dAlias">Nombre en el monitor</label>
+    <input type="text" id="dAlias" maxlength="80" placeholder="Ej.: Visor sala de espera — Centro Lebu">
+    <div id="dCuerpo"></div>
+    <div class="botones">
+      <button class="peligro" id="dOlvidar">Olvidar pantalla</button>
+      <button class="secundario" id="dCerrar">Cerrar</button>
+      <button class="primario" id="dGuardar">Guardar nombre</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cap = (s) => String(s ?? '').charAt(0).toUpperCase() + String(s ?? '').slice(1);
+function safeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+let datos = null;
+let abierta = null;
+const NIVEL_ORDEN = { error: 0, aviso: 1, ok: 2, inactiva: 3, cerrada: 4 };
+const TIPO_EVENTO = { nueva: '🆕', carga: '🔄', 'socket-ok': '🟢', 'socket-caido': '🔴', 'llamada-falla': '⛔', 'audio-falla': '🔇', error: '⚠️', cierre: '⏹' };
+
+function hace(ts, ahora = datos?.ahora || Date.now()) {
+  if (!ts) return '—';
+  const s = Math.max(0, Math.round((ahora - ts) / 1000));
+  if (s < 60) return `hace ${s} s`;
+  if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+  return `hace ${Math.round(s / 86400)} d`;
+}
+const fecha = (ts) => ts ? new Date(ts).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'medium' }) : '—';
+const ms = (v) => v == null ? '—' : v >= 1000 ? `${(v / 1000).toLocaleString('es-CL', { maximumFractionDigits: 1 })} s` : `${v} ms`;
+const visible = (p) => $('verCerradas').checked || !['cerrada', 'inactiva'].includes(p.nivel);
+
+function pintarKpis() {
+  const ps = datos.pantallas;
+  const activas = ps.filter((p) => !['cerrada', 'inactiva'].includes(p.nivel));
+  const n = (nivel) => ps.filter((p) => p.nivel === nivel).length;
+  const sinWs = activas.filter((p) => p.sockets.some((s) => !s.ok)).length;
+  const errores = ps.reduce((s, p) => s + p.errores60, 0);
+  const kpi = (etiqueta, valor, nota, color) => `<div class="kpi"><div class="etiqueta">${etiqueta}</div><div class="valor" style="color:${color || 'inherit'}">${valor}</div><div class="nota">${nota}</div></div>`;
+  $('kpis').innerHTML =
+    kpi('Pantallas activas', activas.length, `${ps.length} registradas en total`) +
+    kpi('Con problemas', n('error'), n('error') ? 'sin reportes, sin WebSocket o sin APIs' : 'ninguna', n('error') ? 'var(--error)' : '') +
+    kpi('Con avisos', n('aviso'), 'reconectando, APIs con fallas o errores JS', n('aviso') ? 'var(--aviso)' : '') +
+    kpi('WebSocket desconectado', sinWs, 'pantallas con al menos uno caído', sinWs ? 'var(--error)' : '') +
+    kpi('Errores de JavaScript', errores.toLocaleString('es-CL'), 'última hora, todas las pantallas', errores ? 'var(--aviso)' : '');
+}
+
+function pintarIncidentes() {
+  const incs = datos.incidentes;
+  $('cardIncidentes').hidden = !incs.length;
+  $('incidentes').innerHTML = incs.map((i) => `<div class="incidente ${i.nivel}">
+    <b>${esc(i.titulo)} <span class="chico" style="display:inline">· ${esc(i.tipo)} · ${esc(cap(i.servidor))} · desde ${new Date(i.inicio).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}</span></b>
+    <span class="chico">${esc(i.causa)}</span>
+    ${i.sugerencia ? `<span class="chico">👉 ${esc(i.sugerencia)}</span>` : ''}
+    ${i.apis.length > 1 ? `<span class="chico">${i.apis.length} pantallas: ${esc(i.apis.slice(0, 8).join(', '))}${i.apis.length > 8 ? '…' : ''}</span>` : ''}
+  </div>`).join('');
+}
+
+// WebSockets del front y componentes del equipo (la app y la impresora de un tótem).
+function celdaSockets(p) {
+  const todos = [...p.componentes.map((c) => ({ ...c, url: 'componente del equipo' })), ...p.sockets];
+  if (!todos.length) return '<span class="chico">ninguna</span>';
+  return todos.map((s) => `<span class="ws ${s.ok ? 'ok' : 'caido'}" title="${esc(s.url)}${s.error ? ' — ' + esc(s.error) : ''}">${esc(s.nombre)}${s.ok ? '' : ' · ' + hace(s.desde).replace('hace ', '')}</span>`).join('');
+}
+
+// Audio: lo último que pasó con la voz, el sonido y el video (fallo sin recuperarse = rojo).
+function celdaAudio(p) {
+  if (!p.audio.length) return '<span class="chico">sin audio todavía</span>';
+  return p.audio.map((a) => {
+    const mudo = a.ultimoFallo && !(a.ultimoOk > a.ultimoFallo);
+    const icono = a.tipo === 'video' ? '🎬' : mudo ? '🔇' : '🔊';
+    const texto = mudo ? `${a.nombreTipo}: ${a.error}` : `${a.nombreTipo} ${hace(a.ultimoOk).replace('hace ', '· ')}`;
+    return `<span class="ws ${mudo ? 'caido' : 'ok'}" title="${esc(a.voz || a.src)}">${icono} ${esc(texto)}</span>`;
+  }).join('') + (p.audio.some((a) => a.tipo === 'voz' && a.voz) ? `<span class="chico">voz: ${esc(p.audio.find((a) => a.tipo === 'voz').voz)}</span>` : '');
+}
+
+function celdaLlamadas(p) {
+  const recientes = p.llamadas.filter((l) => l.ok5 + l.fallos5 > 0);
+  if (!recientes.length) return '<span class="chico">—</span>';
+  const fallan = recientes.filter((l) => l.fallos5 > 0).sort((a, b) => b.fallos5 - a.fallos5);
+  const ok = recientes.reduce((s, l) => s + l.ok5, 0);
+  return fallan.slice(0, 3).map((l) => `<span class="ws caido" title="${esc(l.metodo)} ${esc(l.url)} — ${esc(l.error)}">${esc(l.nombre)} ${esc(l.ruta)} · ${l.fallos5} ${l.fallos5 === 1 ? 'falla' : 'fallan'}${l.ok5 ? ` / ${l.ok5} ok` : ''}</span>`).join('')
+    + (fallan.length > 3 ? `<span class="chico">y ${fallan.length - 3} más</span>` : '')
+    + `<span class="chico">${ok} ${ok === 1 ? 'llamada OK' : 'llamadas OK'}${fallan.length ? '' : ` · ${recientes.length} endpoints`}</span>`;
+}
+
+function pintarTabla() {
+  const fSrv = $('filtroServidor').value, fTipo = $('filtroTipo').value, texto = $('buscar').value.trim().toLowerCase();
+  const solo = $('soloProblemas').checked;
+  const lista = datos.pantallas.filter((p) => visible(p)
+    && (!fSrv || (p.servidor || '') === fSrv) && (!fTipo || p.tipo === fTipo)
+    && (!solo || p.nivel === 'error' || p.nivel === 'aviso')
+    && (!texto || [p.nombre, p.ip, p.id, p.pagina, ...Object.values(p.ids)].some((v) => String(v || '').toLowerCase().includes(texto))));
+  const grupos = new Map();
+  for (const p of lista) {
+    const g = p.servidor || '(sin servidor conocido)';
+    if (!grupos.has(g)) grupos.set(g, []);
+    grupos.get(g).push(p);
+  }
+  const html = [...grupos.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([srv, ps]) => {
+    ps.sort((a, b) => NIVEL_ORDEN[a.nivel] - NIVEL_ORDEN[b.nivel] || a.nombre.localeCompare(b.nombre));
+    const malas = ps.filter((p) => p.nivel === 'error').length;
+    return `<tr class="grupo"><td colspan="11">${esc(cap(srv))}<span class="cuenta">${ps.length} pantallas${malas ? ` · <span style="color:var(--error)">${malas} con problemas</span>` : ''}</span></td></tr>` +
+      ps.map((p) => `<tr data-id="${esc(p.id)}" style="cursor:pointer">
+        <td><span class="nombre">${esc(p.nombre)}</span>${p.demo ? ' <span class="chico" style="display:inline">(demo)</span>' : ''}<span class="chico">${esc(p.nombreTipo)}${Object.keys(p.ids).length ? ' · ' + Object.entries(p.ids).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(' · ') : ''}</span></td>
+        <td><span class="estado ${p.nivel}">${esc(p.detalle)}</span>${p.porServidor ? '<span class="chico">la caída es del servidor, no de la pantalla</span>' : ''}</td>
+        <td>${celdaSockets(p)}</td>
+        <td>${celdaAudio(p)}</td>
+        <td>${celdaLlamadas(p)}</td>
+        <td>${hace(p.ultimoLatido)}<span class="chico">abierta ${hace(p.abiertaDesde).replace('hace ', 'hace ')}</span></td>
+        <td class="num">${ms(p.carga?.totalMs)}</td>
+        <td class="num">${p.errores60 ? `<span class="alto">${p.errores60}</span>` : '0'}</td>
+        <td class="num">${p.memoriaMB != null ? `<span class="${p.memoriaMB > 350 ? 'alto' : ''}">${p.memoriaMB} MB</span>` : '—'}</td>
+        <td class="num">${p.bloqueoMaxMs != null ? `<span class="${p.bloqueoMaxMs > 2000 ? 'alto' : ''}">${ms(p.bloqueoMaxMs)}</span>` : '—'}</td>
+        <td class="mono">${esc(p.ip)}${p.ids.ipEquipo ? `<span class="chico">equipo ${esc(p.ids.ipEquipo)}</span>` : ''}</td>
+      </tr>`).join('');
+  }).join('');
+  $('filas').innerHTML = html || `<tr><td colspan="11" class="vacio">${datos.pantallas.length ? 'Nada que mostrar con estos filtros.' : 'Todavía ninguna pantalla reporta. Agrega la línea de abajo en un front y ábrelo.'}</td></tr>`;
+}
+
+function pintarInstalacion() {
+  const base = datos.urlPublica || (datos.puertoPublico ? `${location.protocol}//${location.hostname}:${datos.puertoPublico}` : location.origin);
+  $('snippet').textContent = `<script src="${base}/rum.js" data-tipo="visor" data-claves="idVisor,idSector,ipEquipo"${datos.conToken ? ' data-token="…"' : ''} defer><\/script>`;
+  const avisos = [];
+  if (!datos.puertoPublico && !datos.urlPublica) avisos.push('No hay un puerto público configurado (<code>rum.puerto</code>): las pantallas tendrían que llegar al puerto del panel, que no debería quedar abierto a internet.');
+  if (location.protocol === 'http:') avisos.push('El monitor está en HTTP. Si el front se abre por <code>https://</code>, el navegador bloquea el reporte: activa <code>ssl</code> en servidores.json.');
+  $('notaPuerto').hidden = !avisos.length;
+  $('notaPuerto').innerHTML = avisos.join('<br>');
+}
+
+function pintarFiltros() {
+  const llenar = (sel, valores, clave, todos, etiqueta = cap) => {
+    const actual = sel.value || safeGet(clave) || '';
+    sel.innerHTML = `<option value="">${todos}</option>` + valores.map((v) => `<option value="${esc(v)}" ${v === actual ? 'selected' : ''}>${esc(etiqueta(v))}</option>`).join('');
+  };
+  const tipos = new Map(datos.pantallas.map((p) => [p.tipo, p.nombreTipo]));
+  llenar($('filtroServidor'), [...new Set(datos.pantallas.map((p) => p.servidor).filter(Boolean))].sort(), 'pant-servidor', 'Todos los servidores');
+  llenar($('filtroTipo'), [...tipos.keys()].sort(), 'pant-tipo', 'Todos los tipos', (v) => tipos.get(v));
+}
+
+function pintarDetalle() {
+  const p = datos?.pantallas.find((x) => x.id === abierta);
+  if (!p) return;
+  $('dTitulo').textContent = p.nombre;
+  $('dSub').innerHTML = `<span class="estado ${p.nivel}">${esc(p.detalle)}</span>`;
+  if (document.activeElement !== $('dAlias')) $('dAlias').value = p.alias;
+  const filasErr = p.errores.map((e) => `<tr><td>${e.nivel ? `<span class="estado ${e.nivel === 'error' ? 'error' : 'aviso'}">${e.nivel === 'error' ? 'ERROR' : 'WARNING'}</span> ` : ''}<span class="mono">${esc(e.msg)}</span><span class="chico">${esc(e.src)}${e.linea ? ':' + e.linea : ''}</span></td><td class="num">${e.n}</td><td>${hace(e.ultima)}</td></tr>`).join('');
+  $('dCuerpo').innerHTML = `
+    <h4>Datos</h4>
+    <dl class="datos">
+      <dt>Tipo</dt><dd>${esc(p.nombreTipo)}</dd>
+      <dt>Identificación</dt><dd>${Object.entries(p.ids).map(([k, v]) => `${esc(k)}: <b>${esc(v)}</b>`).join(' · ') || '—'}</dd>
+      <dt>Página</dt><dd class="mono">${esc(p.pagina)}</dd>
+      <dt>IP pública</dt><dd class="mono">${esc(p.ip)}</dd>
+      <dt>Navegador</dt><dd class="chico" style="display:inline">${esc(p.ua)}</dd>
+      <dt>Visto por primera vez</dt><dd>${fecha(p.primeraVez)}</dd>
+      <dt>Último reporte</dt><dd>${fecha(p.ultimoLatido)} (${hace(p.ultimoLatido)})</dd>
+      <dt>Página abierta</dt><dd>${p.abiertaDesde ? `${hace(p.abiertaDesde)} · ${p.cargas} cargas registradas` : '—'}</dd>
+      <dt>Última carga</dt><dd>${p.carga ? `${ms(p.carga.totalMs)} total · servidor ${ms(p.carga.ttfbMs)} · DOM ${ms(p.carga.domMs)}` : '—'}</dd>
+      <dt>Id del equipo</dt><dd class="mono">${esc(p.id)}</dd>
+    </dl>
+    ${p.componentes.length ? `<h4>Componentes del equipo</h4><table><thead><tr><th>Componente</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>${p.componentes.map((c) => `<tr><td>${esc(c.nombre)}</td><td><span class="estado ${c.ok ? 'ok' : 'error'}">${c.ok ? 'Responde' : 'No responde'} ${hace(c.desde)}</span></td><td class="chico" style="display:table-cell">${esc(c.error) || '—'}</td></tr>`).join('')}</tbody></table>` : ''}
+    <h4>WebSockets</h4>
+    ${p.sockets.length ? `<table><thead><tr><th>Destino</th><th>Estado</th><th class="num">Caídas</th><th>Último error</th></tr></thead><tbody>${p.sockets.map((s) => `<tr><td>${esc(s.nombre)}<span class="chico mono">${esc(s.url)}</span></td><td><span class="estado ${s.ok ? 'ok' : 'error'}">${s.ok ? 'Conectado' : 'Desconectado'} ${hace(s.desde)}</span></td><td class="num">${s.caidas}</td><td class="chico" style="display:table-cell">${esc(s.error) || '—'}</td></tr>`).join('')}</tbody></table>` : '<p class="vacio">Esta página no abrió WebSockets (o rum.js cargó después de crearlos).</p>'}
+    <h4>Audio</h4>
+    ${p.audio.length ? `<table><thead><tr><th>Tipo</th><th class="num">15 min</th><th class="num">Última hora</th><th>Último que sonó</th><th>Último fallo</th></tr></thead><tbody>${p.audio.map((a) => `<tr>
+      <td><b>${esc(a.nombreTipo)}</b>${a.voz ? `<span class="chico">${esc(a.voz)}</span>` : ''}${a.src ? `<span class="chico mono">${esc(a.src)}</span>` : ''}</td>
+      <td class="num">${a.fallos ? `<span style="color:var(--error);font-weight:700">${a.fallos} fallaron</span> / ` : ''}${a.ok} ok</td>
+      <td class="num">${a.fallos60 ? `<span style="color:var(--error)">${a.fallos60} fallaron</span> / ` : ''}${a.ok60} ok</td>
+      <td>${a.ultimoOk ? hace(a.ultimoOk) : '—'}</td>
+      <td>${a.ultimoFallo ? `${esc(a.error)}<span class="chico">${hace(a.ultimoFallo)}</span>` : '—'}</td></tr>`).join('')}</tbody></table>` : '<p class="vacio">Todavía no ha sonado nada desde que se abrió la página.</p>'}
+    <h4>Voces instaladas en el equipo</h4>
+    ${p.voces.length ? `<ul class="chico" style="display:block;margin:0;padding-left:18px">${p.voces.map((v) => `<li${/sabina/i.test(v) ? ' style="color:var(--ok);font-weight:700"' : ''}>${esc(v)}</li>`).join('')}</ul>${p.voces.some((v) => /sabina/i.test(v)) ? '' : '<p class="chico" style="color:var(--aviso)">No tiene la voz Microsoft Sabina (Español México).</p>'}` : '<p class="vacio">El navegador no informó voces.</p>'}
+    <h4>Llamadas a APIs</h4>
+    ${p.llamadas.length ? `<table><thead><tr><th>Endpoint</th><th class="num">5 min</th><th class="num">Última hora</th><th>Último error</th></tr></thead><tbody>${p.llamadas.map((l) => `<tr>
+      <td><b>${esc(l.metodo)}</b> ${esc(l.nombre)} <span class="mono">${esc(l.ruta)}</span><span class="chico mono">${esc(l.url)}</span></td>
+      <td class="num">${l.fallos5 ? `<span style="color:var(--error);font-weight:700">${l.fallos5} fallan</span> / ` : ''}${l.ok5} ok</td>
+      <td class="num">${l.fallos60 ? `<span style="color:var(--error)">${l.fallos60} fallan</span> / ` : ''}${l.ok60} ok</td>
+      <td>${l.ultimoFallo ? `${esc(l.error)}<span class="chico">${hace(l.ultimoFallo)}</span>` : '—'}</td></tr>`).join('')}</tbody></table>` : '<p class="vacio">Sin llamadas registradas en la última hora.</p>'}
+    <h4>Errores de JavaScript</h4>
+    ${filasErr ? `<table><thead><tr><th>Error</th><th class="num">Veces</th><th>Último</th></tr></thead><tbody>${filasErr}</tbody></table>` : '<p class="vacio">Sin errores. 🎉</p>'}
+    <h4>Últimos eventos</h4>
+    ${p.eventos.length ? `<table><tbody>${p.eventos.map((e) => `<tr><td style="white-space:nowrap">${fecha(e.t)}</td><td>${TIPO_EVENTO[e.tipo] || '•'} ${esc(e.detalle)}</td></tr>`).join('')}</tbody></table>` : '<p class="vacio">—</p>'}`;
+  $('dOlvidar').hidden = p.demo;
+  $('dGuardar').hidden = p.demo;
+  $('dAlias').disabled = p.demo;
+}
+
+function pintar() {
+  pintarFiltros();
+  pintarKpis();
+  pintarIncidentes();
+  pintarTabla();
+  pintarInstalacion();
+  pintarDetalle();
+  $('meta').textContent = `Actualizado ${new Date(datos.ahora).toLocaleTimeString('es-CL', { hourCycle: 'h23' })}`;
+}
+
+// Si el monitor corre una versión anterior, faltan campos: se completan vacíos para que la página no se caiga.
+function normalizar(p) {
+  for (const k of ['sockets', 'componentes', 'audio', 'llamadas', 'voces', 'errores', 'eventos']) if (!Array.isArray(p[k])) p[k] = [];
+  if (!p.ids || typeof p.ids !== 'object') p.ids = {};
+  p.nombreTipo = p.nombreTipo || cap(p.tipo || 'pantalla');
+  p.errores60 = p.errores60 || 0;
+  return p;
+}
+
+async function cargar() {
+  let respuesta;
+  try {
+    respuesta = await (await fetch('/api/pantallas')).json();
+  } catch {
+    $('meta').textContent = '⚠ No se pudo conectar con el monitor';
+    return;
+  }
+  const viejo = (respuesta.pantallas || []).some((p) => !Array.isArray(p.audio));
+  datos = { ...respuesta, pantallas: (respuesta.pantallas || []).map(normalizar), incidentes: respuesta.incidentes || [] };
+  try {
+    pintar();
+    if (viejo) $('meta').textContent = '⚠ El monitor corre una versión anterior: reinícialo para ver audio y llamadas a APIs';
+  } catch (e) {
+    console.error('Error dibujando la pestaña Pantallas:', e);
+    $('meta').textContent = `⚠ Error al mostrar los datos: ${e.message}`;
+  }
+}
+
+async function enviar(ruta, cuerpo) {
+  const r = await fetch(ruta, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `Error ${r.status}`);
+}
+
+$('filas').addEventListener('click', (e) => {
+  const fila = e.target.closest('tr[data-id]');
+  if (!fila) return;
+  abierta = fila.dataset.id;
+  $('dAlias').value = datos.pantallas.find((p) => p.id === abierta)?.alias || '';
+  pintarDetalle();
+  $('dlg').showModal();
+});
+$('dCerrar').addEventListener('click', () => $('dlg').close());
+$('dlg').addEventListener('close', () => { abierta = null; });
+$('dGuardar').addEventListener('click', async () => {
+  try { await enviar('/api/pantallas/alias', { id: abierta, alias: $('dAlias').value }); $('dlg').close(); await cargar(); } catch (e) { alert(e.message); }
+});
+$('dOlvidar').addEventListener('click', async () => {
+  if (!confirm('¿Olvidar esta pantalla? Si sigue abierta, volverá a aparecer en su próximo reporte.')) return;
+  try { await enviar('/api/pantallas/olvidar', { id: abierta }); $('dlg').close(); await cargar(); } catch (e) { alert(e.message); }
+});
+$('filtroServidor').addEventListener('change', () => { safeSet('pant-servidor', $('filtroServidor').value); pintarTabla(); });
+$('filtroTipo').addEventListener('change', () => { safeSet('pant-tipo', $('filtroTipo').value); pintarTabla(); });
+$('buscar').addEventListener('input', pintarTabla);
+$('soloProblemas').addEventListener('change', pintarTabla);
+$('verCerradas').addEventListener('change', pintarTabla);
+
+cargar();
+setInterval(cargar, 15000);
+</script>
+</body>
+</html>

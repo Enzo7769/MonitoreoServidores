@@ -16,11 +16,17 @@ const RUTA_PENDIENTES = path.join(__dirname, 'logs', 'pendientes.jsonl');
 let cliente = null;
 let coleccion = null;
 let incidentes = null; // colección "incidentes": uno por falla agrupada, con inicio y fin exactos
+let pantallas = null; // colección "pantallas": último estado de cada visor/UAC/tótem (ver pantallas.js)
+let eventosPantallas = null; // colección "pantallas_eventos": cargas, cortes de WebSocket, errores (con TTL)
+let retencionEventos = null;
 
 async function conectar({ mongoUri, mongoDb = 'monitorAPIs', retencionDias = 30 }) {
   cliente = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 10000 });
   await cliente.connect();
   coleccion = cliente.db(mongoDb).collection('revisiones');
+  pantallas = cliente.db(mongoDb).collection('pantallas');
+  eventosPantallas = cliente.db(mongoDb).collection('pantallas_eventos');
+  await eventosPantallas.createIndex({ pantalla: 1, t: -1 });
 
   // TTL: si cambió la retención, se actualiza el índice existente.
   const segundos = retencionDias * 86400;
@@ -69,6 +75,35 @@ async function leerIncidentes(desde, { servidor } = {}) {
   return (await incidentes.find(filtro).sort({ inicio: -1 }).limit(500).toArray()).map(desdeDocumento);
 }
 
+// ---- Pantallas (RUM) -------------------------------------------------------------
+
+async function leerPantallas() {
+  if (!pantallas) return [];
+  return (await pantallas.find({}).toArray()).map(({ _id, ...p }) => ({ ...p, id: _id }));
+}
+
+async function guardarPantallas(docs, eventos, retencionDias = 30) {
+  if (!pantallas) return;
+  if (retencionEventos !== retencionDias) {
+    const segundos = retencionDias * 86400;
+    const ttl = (await eventosPantallas.indexes().catch(() => [])).find((i) => i.name === 't_ttl');
+    if (!ttl) await eventosPantallas.createIndex({ t: 1 }, { name: 't_ttl', expireAfterSeconds: segundos });
+    else if (ttl.expireAfterSeconds !== segundos) {
+      await cliente.db(eventosPantallas.dbName).command({ collMod: 'pantallas_eventos', index: { name: 't_ttl', expireAfterSeconds: segundos } });
+    }
+    retencionEventos = retencionDias;
+  }
+  if (docs.length) {
+    await pantallas.bulkWrite(docs.map(({ id, ...p }) => ({ replaceOne: { filter: { _id: id }, replacement: p, upsert: true } })), { ordered: false });
+  }
+  if (eventos.length) await eventosPantallas.insertMany(eventos.map((e) => ({ ...e, t: new Date(e.t) })), { ordered: false });
+}
+
+async function borrarPantallas(ids) {
+  if (!pantallas || !ids.length) return;
+  await pantallas.deleteMany({ _id: { $in: ids } });
+}
+
 async function subirPendientes() {
   if (!fs.existsSync(RUTA_PENDIENTES)) return;
   const docs = fs.readFileSync(RUTA_PENDIENTES, 'utf8').split('\n').filter(Boolean)
@@ -109,4 +144,5 @@ async function cerrar() {
 
 module.exports = {
   conectar, guardarCiclo, leerCiclos, conectado, cerrar, guardarIncidente, incidentesActivos, leerIncidentes,
+  leerPantallas, guardarPantallas, borrarPantallas,
 };

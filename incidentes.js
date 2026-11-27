@@ -23,7 +23,14 @@ class Incidentes extends EventEmitter {
   }
 
   // grupos: Map clave -> { servidor, alcance, nivel, titulo, tipo, causa, sugerencia, apis[], persistir }
-  async evaluar(grupos, ahora = Date.now()) {
+  // Las llamadas se encolan: las revisiones y el chequeo de pantallas (cada 30 s) no se pisan.
+  evaluar(grupos, ahora = Date.now()) {
+    const turno = (this.cola || Promise.resolve()).then(() => this.evaluarAhora(grupos, ahora));
+    this.cola = turno.catch(() => {});
+    return turno;
+  }
+
+  async evaluarAhora(grupos, ahora) {
     const cambios = [];
 
     for (const [clave, g] of grupos) {
